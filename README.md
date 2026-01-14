@@ -84,7 +84,7 @@ HA_CONFIG_DIR=/config ./install.sh
 
 ### Method 3: Manual Installation
 
-1. Download the latest release from the [Releases page](https://github.com/GrandstreamEngineering/ha_grandstream_home/releases)
+1. Download the latest release from the [Releases page](https://github.com/GrandstreamEngineering/grandstream_home/releases)
 2. Extract the zip file
 3. Copy the `grandstream_home` folder to your `config/custom_components` directory
 4. Restart Home Assistant

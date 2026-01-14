@@ -82,7 +82,7 @@ HA_CONFIG_DIR=/config ./install.sh
 
 ### 方法三：手动安装
 
-1. 从 [发布页面](https://github.com/GrandstreamEngineering/ha_grandstream_home/releases) 下载最新版本
+1. 从 [发布页面](https://github.com/GrandstreamEngineering/grandstream_home/releases) 下载最新版本
 2. 解压缩 zip 文件
 3. 将 `grandstream_home` 文件夹复制到您的 `config/custom_components` 目录
 4. 重启 Home Assistant
