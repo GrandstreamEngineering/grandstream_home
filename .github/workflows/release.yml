@@ -4,15 +4,35 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag version (e.g., v1.0.0)'
+        required: true
+        type: string
 
 jobs:
-  create-release:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Set tag name
+        id: set_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release asset
+        run: |
+          cd custom_components
+          zip -r grandstream_home.zip grandstream_home
 
       - name: Generate changelog
         id: changelog
@@ -27,22 +47,16 @@ jobs:
             CHANGELOG=$(git log --pretty=format:"- %s (%h)")
           fi
 
-          # Save changelog to file
-          echo "$CHANGELOG" > CHANGELOG_RELEASE.md
-
-          # Set output for later steps
+          # Set output for release body
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Create Release
-        id: create_release
+      - name: Create release and upload asset
         uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Grandstream Home Integration ${{ github.ref }}
+          tag_name: ${{ steps.set_tag.outputs.tag }}
+          files: custom_components/grandstream_home.zip
           body: |
             ## Changes in this release
 
@@ -57,65 +71,12 @@ jobs:
             4. Restart Home Assistant
 
             ### Manual Installation
-            1. Download the [grandstream_home.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/grandstream_home.zip) file below
+            1. Download `grandstream_home.zip` below
             2. Unzip the file to get the `grandstream_home` directory
             3. Copy this directory to `<config>/custom_components/` in your Home Assistant installation
             4. Restart Home Assistant
 
-            > Note: This version requires Home Assistant 2023.1.0 or newer.
           draft: false
           prerelease: false
-
-      - name: Create Release Asset
-        run: |
-          mkdir release
-          cp -r custom_components/grandstream_home release/
-          cd release
-          zip -r ../grandstream_home.zip grandstream_home
-          cd ..
-
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ./grandstream_home.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  update-version:
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-
-      - name: Update version in manifest.json
-        run: |
-          # Extract version from tag (remove 'v' prefix)
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "Updating version to $VERSION"
-
-          # Update version in manifest.json
-          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" custom_components/grandstream_home/manifest.json
-
-          # Update version in const.py if exists
-          if [ -f "custom_components/grandstream_home/const.py" ]; then
-            sed -i "s/INTEGRATION_VERSION = \".*\"/INTEGRATION_VERSION = \"$VERSION\"/" custom_components/grandstream_home/const.py
-          fi
-
-      - name: Commit updated version
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add custom_components/grandstream_home/manifest.json
-          if [ -f "custom_components/grandstream_home/const.py" ]; then
-            git add custom_components/grandstream_home/const.py
-          fi
-          git commit -m "Update version to ${{ github.ref_name }}"
-          git push origin main

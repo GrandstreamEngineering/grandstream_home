@@ -1,4 +1,4 @@
-﻿"""Device definitions for Grandstream Home."""
+"""Device definitions for Grandstream Home."""
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import async_get as async_get_device_registry
 from homeassistant.helpers.entity import DeviceInfo

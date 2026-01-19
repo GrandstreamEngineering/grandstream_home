@@ -1,4 +1,4 @@
-﻿"""Provides device automations for Grandstream Home."""
+"""Provides device automations for Grandstream Home."""
 from __future__ import annotations
 
 import logging

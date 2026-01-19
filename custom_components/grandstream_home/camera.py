@@ -1,4 +1,4 @@
-﻿"""Grandstream Home camera support module.
+"""Grandstream Home camera support module.
 
 This module provides Grandstream GDS camera device support for Home Assistant.
 Uses FFmpeg to process RTSP streams and provides snapshot and streaming functionality.

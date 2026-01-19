@@ -1,0 +1,142 @@
+name: Auto Release on Version Change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'custom_components/**'
+
+  workflow_dispatch:
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      new_version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check version and determine if should release
+        id: check
+        run: |
+          # Get current version from manifest.json
+          CURRENT_VERSION=$(jq -r '.version' custom_components/grandstream_home/manifest.json)
+          
+          echo "Current version: $CURRENT_VERSION"
+          echo "version=v$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          
+          # Check if tag exists
+          if git ls-remote --tags origin | grep -q "refs/tags/v$CURRENT_VERSION$"; then
+            echo "Tag v$CURRENT_VERSION already exists - will recreate release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag v$CURRENT_VERSION does not exist - will create release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+  create-release:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git ls-remote --tags origin | grep -q "refs/tags/${{ needs.check-version.outputs.new_version }}$"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag ${{ needs.check-version.outputs.new_version }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag ${{ needs.check-version.outputs.new_version }} does not exist"
+          fi
+
+      - name: Delete existing tag and release if exists
+        if: steps.check_tag.outputs.exists == 'true'
+        run: |
+          # Delete remote tag
+          git push --delete origin "${{ needs.check-version.outputs.new_version }}" || true
+          
+          # Delete local tag if exists
+          git tag -d "${{ needs.check-version.outputs.new_version }}" || true
+          
+          # Delete release using GitHub CLI
+          gh release delete "${{ needs.check-version.outputs.new_version }}" --yes || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Delete local tag if exists (safety check)
+          git tag -d "${{ needs.check-version.outputs.new_version }}" 2>/dev/null || true
+          
+          # Create new tag
+          git tag -a "${{ needs.check-version.outputs.new_version }}" -m "Release ${{ needs.check-version.outputs.new_version }}"
+          git push origin "${{ needs.check-version.outputs.new_version }}"
+
+      - name: Create release asset
+        run: |
+          cd custom_components
+          zip -r grandstream_home.zip grandstream_home
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          # Generate changelog based on commits since previous tag
+          if [ -n "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" | head -20)
+          fi
+          
+          # Set output for release body
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.check-version.outputs.new_version }}
+          name: Release ${{ needs.check-version.outputs.new_version }}
+          files: custom_components/grandstream_home.zip
+          body: |
+            ## 🎉 Release ${{ needs.check-version.outputs.new_version }}
+            
+            ### 📝 Changes in this release
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ### 📦 Installation
+            
+            #### HACS Installation (Recommended)
+            1. Go to HACS in Home Assistant
+            2. Click the 3 dots in the top right corner and select "Redownload"
+            3. Find "Grandstream Home Integration" and click the redownload button
+            4. Restart Home Assistant
+            
+            #### Manual Installation
+            1. Download `grandstream_home.zip` below
+            2. Unzip the file to get the `grandstream_home` directory
+            3. Copy this directory to `<config>/custom_components/` in your Home Assistant installation
+            4. Restart Home Assistant
+            
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

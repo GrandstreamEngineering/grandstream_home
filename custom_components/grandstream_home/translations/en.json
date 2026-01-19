@@ -1,6 +1,6 @@
 {
-  "flow_title": "{name}",
   "config": {
+    "flow_title": "{name}",
     "step": {
       "user": {
         "title": "Add Grandstream Device",
