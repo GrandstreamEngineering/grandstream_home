@@ -5,11 +5,23 @@ on:
     branches: [main, dev]
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      validation_type:
+        description: 'Choose validation type'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - 'both'
+          - 'hacs_only'
+          - 'hassfest_only'
 
 jobs:
   validate_hacs:
     name: "HACS Validation"
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || inputs.validation_type == 'both' || inputs.validation_type == 'hacs_only'
     steps:
       - uses: "actions/checkout@v4"
       - name: HACS Action
@@ -20,6 +32,7 @@ jobs:
   validate_hassfest:
     name: "Hassfest Validation"
     runs-on: "ubuntu-latest"
+    if: github.event_name != 'workflow_dispatch' || inputs.validation_type == 'both' || inputs.validation_type == 'hassfest_only'
     steps:
       - uses: "actions/checkout@v4"
       - uses: "home-assistant/actions/hassfest@master"
