@@ -1,4 +1,5 @@
 """Provides device automations for Grandstream Home."""
+
 from __future__ import annotations
 
 import logging
@@ -53,6 +54,7 @@ async def async_get_triggers(
 
     Returns:
         List of trigger configurations for GDS and GNS devices, empty list otherwise
+
     """
     resolver = DeviceTypeResolver(hass)
 
@@ -102,6 +104,7 @@ def _validate_trigger_config(config: ConfigType) -> tuple[str, str]:
 
     Raises:
         ValueError: If required fields are missing
+
     """
     if CONF_TYPE not in config:
         _LOGGER.error("Trigger config missing type field")
@@ -134,6 +137,7 @@ def _build_trigger_data(
 
     Returns:
         Formatted trigger data dictionary
+
     """
     trigger_data = {
         "trigger": {
@@ -175,6 +179,7 @@ async def async_attach_trigger(
 
     Raises:
         ValueError: If configuration is invalid or device not found
+
     """
     _LOGGER.debug("Attaching trigger, config: %s", config)
 
@@ -379,6 +384,7 @@ async def async_get_trigger_capabilities(
 
     Returns:
         Dictionary with extra fields schema for UI configuration
+
     """
     trigger_type = config[CONF_TYPE]
     device_id = config.get(CONF_DEVICE_ID)
@@ -441,22 +447,22 @@ async def async_get_trigger_capabilities(
                 ): vol.All(vol.Coerce(float), vol.Range(min=0, max=100))
             }
 
-            # Add index field if multiple entities exist
+            # Add index field only if multiple entities exist
             if max_index > 1:
-                schema_fields[vol.Optional(CONF_INDEX, default=1)] = vol.All(
+                schema_fields[vol.Required(CONF_INDEX, default=1)] = vol.All(
                     vol.Coerce(int), vol.Range(min=1, max=max_index)
                 )
 
             return {"extra_fields": vol.Schema(schema_fields)}
 
-    # Status-based triggers that only need index if multiple entities exist
+    # Status-based triggers that need index only when multiple entities exist
     if trigger_type in ["fan_abnormal", "disk_abnormal", "pool_abnormal"]:
         if max_index > 1:
-            # Only show index selector if there are multiple entities
+            # Show index selector as required field when multiple entities exist
             return {
                 "extra_fields": vol.Schema(
                     {
-                        vol.Optional(CONF_INDEX, default=1): vol.All(
+                        vol.Required(CONF_INDEX, default=1): vol.All(
                             vol.Coerce(int), vol.Range(min=1, max=max_index)
                         )
                     }

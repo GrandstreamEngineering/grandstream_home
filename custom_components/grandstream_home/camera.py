@@ -17,9 +17,9 @@ import tempfile
 import time
 from typing import Any
 
+from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 import aiohttp
 from haffmpeg.tools import IMAGE_JPEG, ImageFrame
-from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 import requests
 
 from homeassistant.components.camera import CameraEntityFeature
@@ -52,6 +52,7 @@ def is_valid_jpeg(image_data: bytes) -> bool:
 
     Returns:
         True if the image is a valid JPEG, False otherwise
+
     """
     if not image_data or len(image_data) < 100:
         return False
@@ -80,6 +81,7 @@ def _get_cached_font(size: int = 11) -> ImageFont.FreeTypeFont | ImageFont.Image
 
     Returns:
         PIL font object
+
     """
     # Check cache first
     if size in _FONT_CACHE:
@@ -122,6 +124,7 @@ def generate_blank_image(width: int = 640, height: int = 480) -> bytes | None:
 
     Returns:
         JPEG image data as bytes or None if generation failed
+
     """
     try:
         # Create blank image with dark theme color
@@ -182,6 +185,7 @@ async def async_setup_entry(
         2. Check if RTSP is enabled
         3. Get RTSP configuration from the device
         4. Create and add camera entities to Home Assistant
+
     """
     # Early validation to avoid unnecessary work
     device_type = entry.data.get(CONF_DEVICE_TYPE)
@@ -294,6 +298,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
             rtsp_url: RTSP stream URL
             snapshot_url: HTTP snapshot URL
             device: Grandstream device instance for device registry linkage
+
         """
         super().__init__(hass, config)
 
@@ -362,6 +367,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             True if image is valid and cached, False otherwise
+
         """
         if not image_data or len(image_data) < 100:
             return False
@@ -392,6 +398,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             str: RTSP stream URL
+
         """
         return self._input
 
@@ -424,6 +431,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Return:
             Optional[bytes]: JPEG format image data, returns None if all methods fail
+
         """
         current_time = time.time()
         width = width or 640
@@ -484,6 +492,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             True if successful and image cached, False otherwise
+
         """
         image_data = await self._fetch_http_snapshot()
         if not image_data:
@@ -501,6 +510,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             True if successful and image cached, False otherwise
+
         """
         image_data = await self._fetch_ffmpeg_image()
         if not image_data:
@@ -518,6 +528,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             True if successful and image cached, False otherwise
+
         """
         image_data = await self._get_image_with_subprocess()
         if not image_data:
@@ -547,6 +558,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             Raw image data or None if fetching failed
+
         """
         try:
             self._log_debug("Starting HTTP snapshot: %s", self._snapshot_url)
@@ -574,9 +586,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
             ):
                 if response.status == 200:
                     return await response.read()
-                self._log_debug(
-                    "HTTP request failed with status: %s", response.status
-                )
+                self._log_debug("HTTP request failed with status: %s", response.status)
 
         except TimeoutError:
             self._log_debug("HTTP request timed out")
@@ -590,6 +600,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             Raw image data or None if fetching failed
+
         """
         image = None
         try:
@@ -622,6 +633,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             Raw image data or None if fetching failed
+
         """
         try:
             self._log_debug("Starting subprocess FFmpeg call")

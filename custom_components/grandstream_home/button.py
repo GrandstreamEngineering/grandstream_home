@@ -146,9 +146,7 @@ class GrandstreamRebootButton(GrandstreamBaseButton):
 
             # Check if device is authenticated
             if hasattr(api, "is_authenticated") and not is_authenticated:
-                _LOGGER.debug(
-                    "Reboot button unavailable: GDS device not authenticated"
-                )
+                _LOGGER.debug("Reboot button unavailable: GDS device not authenticated")
                 return False
 
             return True
@@ -165,7 +163,10 @@ class GrandstreamRebootButton(GrandstreamBaseButton):
                 self.device.name,
                 getattr(api, "device_type", "unknown"),
             )
-            await self.hass.async_add_executor_job(api.reboot_device)
+            try:
+                await self.hass.async_add_executor_job(api.reboot_device)
+            except Exception as err:
+                _LOGGER.error("Failed to reboot device: %s", err)
             return
 
         # Fallback: get device_id and call service
@@ -215,9 +216,12 @@ class GnsSpecializedButton(GrandstreamBaseButton):
         """Handle button press - directly call API."""
         api = self._get_api_instance()
         if api and self._api_method_name and hasattr(api, self._api_method_name):
-            await self.hass.async_add_executor_job(
-                getattr(api, self._api_method_name)
-            )
+            try:
+                await self.hass.async_add_executor_job(
+                    getattr(api, self._api_method_name)
+                )
+            except Exception as err:
+                _LOGGER.error("Failed to execute %s: %s", self._api_method_name, err)
             return
 
         # Fallback to service call

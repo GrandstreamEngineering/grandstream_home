@@ -1,4 +1,5 @@
 """Utility functions and classes for Grandstream Home integration."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -27,6 +28,7 @@ def get_device_type(
 
     Returns:
         Device type string (GDS/GNS) or None if not determinable
+
     """
     if device is None:
         return None
@@ -84,6 +86,7 @@ class DeviceMatcher:
 
         Args:
             hass: Home Assistant instance
+
         """
         self.hass = hass
         self._device_registry = dr.async_get(hass)
@@ -96,6 +99,7 @@ class DeviceMatcher:
 
         Returns:
             Device entry or None if not found
+
         """
         return self._device_registry.async_get(device_id)
 
@@ -104,6 +108,7 @@ class DeviceMatcher:
 
         Returns:
             List of all devices belonging to this integration
+
         """
         return [
             dev
@@ -124,6 +129,7 @@ class DeviceMatcher:
 
         Returns:
             Matching device or None
+
         """
         devices = self.get_all_grandstream_devices()
 
@@ -179,6 +185,7 @@ class DeviceMatcher:
 
         Returns:
             Best matching device or None
+
         """
         # Try to get device by ID first
         if device_id:
@@ -219,6 +226,7 @@ class DeviceMatcher:
 
         Returns:
             True if device is valid, False otherwise
+
         """
         if device is None:
             return False
@@ -234,6 +242,7 @@ class DeviceTypeResolver:
 
         Args:
             hass: Home Assistant instance
+
         """
         self.hass = hass
         self._device_registry = dr.async_get(hass)
@@ -251,6 +260,7 @@ class DeviceTypeResolver:
 
         Returns:
             Device type or None
+
         """
         device = self._device_registry.async_get(device_id)
 
@@ -292,6 +302,7 @@ class DeviceTypeResolver:
 
         Returns:
             True if device is GDS type, False otherwise
+
         """
         return (
             self.get_device_type_for_automation(device_id, "check") == DEVICE_TYPE_GDS
@@ -305,6 +316,7 @@ class DeviceTypeResolver:
 
         Returns:
             True if device is GNS type, False otherwise
+
         """
         return (
             self.get_device_type_for_automation(device_id, "check")
@@ -338,6 +350,7 @@ def generate_unique_id(
 
     Returns:
         str: Formatted unique ID
+
     """
     # Clean device name, remove special characters
     if device_name and device_name.strip():

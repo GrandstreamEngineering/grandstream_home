@@ -42,6 +42,7 @@ def normalize_status(status: Any) -> str:
 
     Returns:
         str: Normalized status string
+
     """
     if not status:
         return "unknown"
@@ -63,6 +64,7 @@ async def _parse_request_data(request: web.Request) -> dict[str, Any]:
 
     Returns:
         dict: Parsed request data
+
     """
     try:
         if request.headers.get("Content-Type", "").startswith("application/json"):
@@ -92,7 +94,7 @@ async def _parse_request_data(request: web.Request) -> dict[str, Any]:
 async def _handle_status_data(
     coordinator: DataUpdateCoordinator, data: dict[str, Any]
 ) -> dict[str, Any]:
-    """Common method for handling status data.
+    """Handle status data.
 
     Args:
         coordinator: Data update coordinator
@@ -100,6 +102,7 @@ async def _handle_status_data(
 
     Returns:
         dict: Response data
+
     """
     try:
         # Get device type, default to 'gds'
@@ -154,6 +157,7 @@ async def _handle_alarm_event(hass: HomeAssistant, data: dict[str, Any]) -> None
     Args:
         hass: Home Assistant instance
         data: Alarm event data
+
     """
     try:
         event = data.get("event")
@@ -195,7 +199,7 @@ async def _handle_alarm_event(hass: HomeAssistant, data: dict[str, Any]) -> None
 async def _handle_command_data(
     hass: HomeAssistant, data: dict[str, Any]
 ) -> dict[str, Any]:
-    """Common method for handling command data.
+    """Handle command data.
 
     Args:
         hass: Home Assistant instance
@@ -203,6 +207,7 @@ async def _handle_command_data(
 
     Returns:
         dict: Response data
+
     """
     try:
         _LOGGER.info("Command received: %s", data)
@@ -272,6 +277,7 @@ class GsWebhookStatusReceiver:
             hass: Home Assistant instance
             coordinator: Data update coordinator
             webhook_id: Webhook ID
+
         """
         self.hass = hass
         self.coordinator = coordinator
@@ -301,6 +307,7 @@ class GsWebhookStatusReceiver:
 
         Returns:
             web.Response: JSON response
+
         """
         try:
             # Parse request data
@@ -339,6 +346,7 @@ class GsWebhookCommandReceiver:
         Args:
             hass: Home Assistant instance
             webhook_id: Webhook ID
+
         """
         self.hass = hass
         self.webhook_id = webhook_id
@@ -367,6 +375,7 @@ class GsWebhookCommandReceiver:
 
         Returns:
             web.Response: JSON response
+
         """
         try:
             # Parse request data

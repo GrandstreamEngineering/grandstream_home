@@ -1,4 +1,5 @@
 """Constants for the Grandstream Home integration."""
+
 DOMAIN = "grandstream_home"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"

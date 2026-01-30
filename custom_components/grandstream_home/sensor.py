@@ -1,4 +1,5 @@
 """Sensor platform for Grandstream integration."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -258,8 +259,8 @@ class GrandstreamSensor(SensorEntity):
         for part in parts:
             # Handle list index like key[0]
             while "[" in part and "]" in part:
-                base = part[:part.index("[")]
-                idx_str = part[part.index("[") + 1:part.index("]")]
+                base = part[: part.index("[")]
+                idx_str = part[part.index("[") + 1 : part.index("]")]
                 if base:
                     if isinstance(cur, dict):
                         cur = cur.get(base, None)
@@ -277,7 +278,7 @@ class GrandstreamSensor(SensorEntity):
                 if part.endswith("]"):
                     part = ""
                 else:
-                    part = part[part.index("]") + 1:]
+                    part = part[part.index("]") + 1 :]
             if part:
                 if isinstance(cur, dict):
                     cur = cur.get(part, None)

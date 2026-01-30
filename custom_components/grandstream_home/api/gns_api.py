@@ -12,6 +12,11 @@ from typing import Any, TypeVar
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+import requests
+
+# Disable SSL warnings for self-signed certificates
+import urllib3
+
 from custom_components.grandstream_home.const import (
     CONTENT_TYPE_FORM,
     CONTENT_TYPE_JSON,
@@ -25,10 +30,6 @@ from custom_components.grandstream_home.const import (
     INTEGRATION_VERSION,
 )
 from custom_components.grandstream_home.utils import format_host_url
-import requests
-
-# Disable SSL warnings for self-signed certificates
-import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -71,13 +72,14 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 
 def _require_auth(func: F) -> F:
-    """Decorator to ensure API method is authenticated before execution.
+    """Ensure API method is authenticated before execution.
 
     Args:
         func: Method that requires authentication
 
     Returns:
         Wrapped method with authentication check
+
     """
 
     @functools.wraps(func)
@@ -94,7 +96,7 @@ def _require_auth(func: F) -> F:
 
 
 def _handle_session_retry(func: F) -> F:
-    """Decorator to handle session expiration with automatic re-login.
+    """Handle session expiration with automatic re-login.
 
     If API call returns 401 Unauthorized, automatically re-login once and retry.
 
@@ -103,6 +105,7 @@ def _handle_session_retry(func: F) -> F:
 
     Returns:
         Wrapped method with session retry capability
+
     """
 
     @functools.wraps(func)
@@ -167,6 +170,7 @@ class GNSNasAPI:
             app_id: Application ID for app login
             use_https: Use HTTPS protocol (default: True)
             port: Device port (default: DEFAULT_HTTPS_PORT)
+
         """
         # Connection settings
         self.host: str = host
@@ -217,6 +221,7 @@ class GNSNasAPI:
 
         Returns:
             Complete API URL
+
         """
         protocol = "https" if self._use_https else "http"
         host_url = format_host_url(self.host)
@@ -243,6 +248,7 @@ class GNSNasAPI:
         Returns:
             Tuple of (API response data, is_connection_error)
             is_connection_error is True if the failure is due to network connectivity issues
+
         """
         result = None
         is_connection_error = False
@@ -291,6 +297,7 @@ class GNSNasAPI:
 
         Returns:
             PEM formatted public key, or None if failed
+
         """
         url = f"{self.base_url}{ENDPOINT_PUBLIC_KEY}"
         _LOGGER.debug("Requesting public key from: %s", url)
@@ -316,6 +323,7 @@ class GNSNasAPI:
 
         Returns:
             Hex encoded encrypted password, or None if failed.
+
         """
         try:
             if not self._public_key:
@@ -348,6 +356,7 @@ class GNSNasAPI:
 
         Returns:
             Dictionary with unknown values for all sensors
+
         """
         return {
             "device_status": "unknown",
@@ -376,7 +385,12 @@ class GNSNasAPI:
         self._encrypted_password = None
         _LOGGER.debug("Cleared cached credentials")
 
-    def _handle_login_failure(self, reason: str = "Unknown error", code: int | None = None, auth_failure: bool = True) -> None:
+    def _handle_login_failure(
+        self,
+        reason: str = "Unknown error",
+        code: int | None = None,
+        auth_failure: bool = True,
+    ) -> None:
         """Handle login failure by incrementing count and warning if needed.
 
         Args:
@@ -384,6 +398,7 @@ class GNSNasAPI:
             code: Error code if available
             auth_failure: Whether this is an authentication failure (default: True)
                          Set to False for connection errors to avoid lockout
+
         """
         if auth_failure:
             # Clear cached credentials as they may be invalid, especially after device restart
@@ -405,19 +420,18 @@ class GNSNasAPI:
                 _LOGGER.warning(
                     "Multiple authentication failures detected (%d/2). "
                     "Further failures will require a 15-minute wait.",
-                    self._login_failed_count
+                    self._login_failed_count,
                 )
         else:
             # Log connection error without incrementing counter or clearing credentials
-            _LOGGER.warning(
-                "Login request failed due to connection issues: %s", reason
-            )
+            _LOGGER.warning("Login request failed due to connection issues: %s", reason)
 
     def _handle_login_success(self, session_data: dict[str, Any]) -> None:
         """Handle successful login by resetting count and setting state.
 
         Args:
             session_data: Login session data from successful response
+
         """
         # Reset failure count and set authentication/online state on success
         self._login_failed_count = 0
@@ -459,6 +473,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if login successful, False otherwise
+
         """
         # Check if we need to wait after multiple failed attempts
         current_time = time.time()
@@ -469,7 +484,8 @@ class GNSNasAPI:
                 wait_time = int(900 - time_since_last_attempt)
                 _LOGGER.warning(
                     "Too many login failures. Will wait %d seconds (%.1f minutes) before retrying.",
-                    wait_time, wait_time / 60
+                    wait_time,
+                    wait_time / 60,
                 )
                 return False
             # Reset counter after waiting period
@@ -478,9 +494,7 @@ class GNSNasAPI:
         if not self._encrypted_password:
             self._encrypted_password = self._encrypt_password(self.password)
             if not self._encrypted_password:
-                _LOGGER.warning(
-                    "Cannot login: password encryption failed"
-                )
+                _LOGGER.warning("Cannot login: password encryption failed")
                 return False
 
         url = f"{self.base_url}{ENDPOINT_APP_LOGIN}"
@@ -513,7 +527,9 @@ class GNSNasAPI:
             if not is_connection_error:
                 self._handle_login_failure("Invalid response from server")
             else:
-                _LOGGER.warning("Login request failed due to connection issues (device may be offline)")
+                _LOGGER.warning(
+                    "Login request failed due to connection issues (device may be offline)"
+                )
             return False
 
         _LOGGER.debug("App login response: %s", result)
@@ -547,6 +563,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if authenticated, False if login failed
+
         """
         if not self.session_id:
             _LOGGER.info("Not logged in, attempting to login...")
@@ -561,6 +578,7 @@ class GNSNasAPI:
 
         Returns:
             Headers with session authentication.
+
         """
         return {
             HEADER_CONTENT_TYPE: CONTENT_TYPE_JSON,
@@ -578,6 +596,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if command successful, False otherwise
+
         """
         url = f"{self.base_url}{endpoint}"
         headers = {
@@ -633,6 +652,7 @@ class GNSNasAPI:
 
         Raises:
             ValueError: If MAC address format is invalid
+
         """
         # Clean MAC address (remove separators and convert to uppercase)
         mac_clean = mac_address.replace(":", "").replace("-", "").upper()
@@ -656,7 +676,7 @@ class GNSNasAPI:
             ) from e
 
         # Build magic packet: 6 bytes of 0xFF + 16 repetitions of MAC
-        magic_packet = b"\xFF" * 6 + mac_bytes * 16
+        magic_packet = b"\xff" * 6 + mac_bytes * 16
 
         _LOGGER.debug(
             "WOL: Magic packet built - Total length: %d bytes (6 header + %d MAC repetitions)",
@@ -671,7 +691,13 @@ class GNSNasAPI:
 
         return magic_packet
 
-    def _get_api_data(self, endpoint: str, operation: str, use_v2: bool = False, method: str = HTTP_METHOD_GET) -> Any:
+    def _get_api_data(
+        self,
+        endpoint: str,
+        operation: str,
+        use_v2: bool = False,
+        method: str = HTTP_METHOD_GET,
+    ) -> Any:
         """Get data from API endpoint with common error handling.
 
         Args:
@@ -682,13 +708,12 @@ class GNSNasAPI:
 
         Returns:
             API data, or None if failed
+
         """
         url = self._build_url(endpoint, use_v2=use_v2)
         headers = self._get_auth_headers()
 
-        result, _ = self._handle_api_request(
-            method, url, operation, headers=headers
-        )
+        result, _ = self._handle_api_request(method, url, operation, headers=headers)
         if not result or not isinstance(result, dict):
             return None
 
@@ -711,8 +736,11 @@ class GNSNasAPI:
 
         Returns:
             dict: Hardware information data, or None if failed
+
         """
-        return self._get_api_data(ENDPOINT_HARDWARE_INFO, "get hardware info", use_v2=True)
+        return self._get_api_data(
+            ENDPOINT_HARDWARE_INFO, "get hardware info", use_v2=True
+        )
 
     def get_system_metrics(self) -> dict[str, Any]:
         """Get system metrics from GNS NAS device.
@@ -721,6 +749,7 @@ class GNSNasAPI:
 
         Returns:
             System metrics data with processed hardware information.
+
         """
         if not self._ensure_auth():
             _LOGGER.warning(
@@ -749,6 +778,7 @@ class GNSNasAPI:
 
         Args:
             metrics: Target metrics dictionary.
+
         """
         try:
             hardware_info = self.get_hardware_info()
@@ -812,6 +842,7 @@ class GNSNasAPI:
 
         Args:
             metrics: Target metrics dictionary.
+
         """
         metrics.update(
             {
@@ -833,6 +864,7 @@ class GNSNasAPI:
 
         Returns:
             GB value.
+
         """
         try:
             if memory_str.endswith("GB"):
@@ -850,6 +882,7 @@ class GNSNasAPI:
 
         Args:
             metrics: Target metrics dictionary.
+
         """
         try:
             storage_summary = self.get_storage_summary()
@@ -871,6 +904,7 @@ class GNSNasAPI:
 
         Args:
             metrics: Target metrics dictionary.
+
         """
         # For storage, empty lists are appropriate
         metrics.update(
@@ -885,6 +919,7 @@ class GNSNasAPI:
 
         Args:
             metrics: Target metrics dictionary.
+
         """
         try:
             network_data = self.get_network_data(duration=GNS_DEFAULT_TIMEOUT)
@@ -913,6 +948,7 @@ class GNSNasAPI:
 
         Args:
             metrics: Target metrics dictionary.
+
         """
         metrics.update(
             {
@@ -926,6 +962,7 @@ class GNSNasAPI:
 
         Args:
             metrics: Target metrics dictionary.
+
         """
         try:
             system_info = self.get_system_info()
@@ -949,6 +986,7 @@ class GNSNasAPI:
 
         Args:
             metrics: Target metrics dictionary.
+
         """
         metrics.update(
             {
@@ -968,6 +1006,7 @@ class GNSNasAPI:
 
         Returns:
             list: List of storage pool information dictionaries
+
         """
         url = f"{self.base_url}{ENDPOINT_STORAGE_POOLS}"
         headers = self._get_auth_headers()
@@ -1011,6 +1050,7 @@ class GNSNasAPI:
 
         Returns:
             list: List of disk information dictionaries
+
         """
         url = f"{self.base_url}{ENDPOINT_STORAGE_DISKS}"
         headers = self._get_auth_headers()
@@ -1036,6 +1076,7 @@ class GNSNasAPI:
 
         Returns:
             dict: Storage summary with processed information
+
         """
         pools = self.get_storage_pools()
         disks = self.get_disks()
@@ -1103,6 +1144,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if reboot command successful
+
         """
         return self._send_power_command(ENDPOINT_DEVICE_REBOOT, "reboot")
 
@@ -1114,6 +1156,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if sleep command successful, False otherwise
+
         """
         return self._send_power_command(ENDPOINT_DEVICE_SLEEP, "sleep")
 
@@ -1122,6 +1165,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if shutdown command successful
+
         """
         return self._send_power_command(ENDPOINT_DEVICE_SHUTDOWN, "shutdown")
 
@@ -1149,6 +1193,7 @@ class GNSNasAPI:
             - Network card must support WOL
             - Device must be connected to power
             - This only sends the packet, actual wake-up depends on hardware support
+
         """
         target_mac = mac_address or self.device_mac
 
@@ -1173,6 +1218,7 @@ class GNSNasAPI:
                 sock.sendto(magic_packet, (broadcast_ip, port))
 
             _LOGGER.info("WOL magic packet sent successfully to %s", target_mac)
+            return True
         except ValueError as err:
             _LOGGER.error("Invalid MAC address for WOL: %s", err)
         except OSError as err:
@@ -1185,6 +1231,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if device is online and reachable
+
         """
         return self._is_online
 
@@ -1196,6 +1243,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if user info fetched successfully, False otherwise
+
         """
         if not self.session_id:
             _LOGGER.warning("Cannot fetch user info: not logged in")
@@ -1242,6 +1290,7 @@ class GNSNasAPI:
 
         Returns:
             bool: True if MAC address fetched successfully, False otherwise
+
         """
         if not self.session_id:
             _LOGGER.warning("Cannot fetch device MAC: not logged in")
@@ -1306,9 +1355,7 @@ class GNSNasAPI:
 
                     return True
 
-            _LOGGER.warning(
-                "No active network card found, MAC address not available"
-            )
+            _LOGGER.warning("No active network card found, MAC address not available")
             return False
         error_msg = result.get("msg", "Unknown error")
         _LOGGER.error(
@@ -1330,6 +1377,7 @@ class GNSNasAPI:
             This property returns cached value only. It does NOT trigger network requests.
             User info is fetched during login. If you need to refresh, call _fetch_user_info()
             from an executor job.
+
         """
         # IMPORTANT: Do NOT call _fetch_user_info() here!
         # This property may be called from the main event loop (e.g., in entity.available)
@@ -1342,6 +1390,7 @@ class GNSNasAPI:
 
         Returns:
             User information from base_info endpoint, or None if not available.
+
         """
         return self._user_info
 
@@ -1352,6 +1401,7 @@ class GNSNasAPI:
 
         Returns:
             List of network card information dictionaries, or empty list if failed
+
         """
         result = self._get_api_data(ENDPOINT_NETWORK_CARDS, "get network cards")
         if isinstance(result, list):
@@ -1371,6 +1421,7 @@ class GNSNasAPI:
 
         Returns:
             dict: Network data with interface statistics, or None if failed
+
         """
         url = self._build_url(ENDPOINT_NETWORK_DATA, use_v2=True)
         headers = self._get_auth_headers()
@@ -1411,6 +1462,7 @@ class GNSNasAPI:
 
         Returns:
             dict: System information data, or None if failed
+
         """
         return self._get_api_data(ENDPOINT_SYSTEM_INFO, "get system info")
 
@@ -1422,6 +1474,7 @@ class GNSNasAPI:
 
         Returns:
             dict: Processed network metrics with real-time data (only used fields)
+
         """
         if not network_data or len(network_data) == 0:
             return {}
@@ -1465,6 +1518,7 @@ class GNSNasAPI:
 
         Returns:
             int: Total running time in seconds, 0 if parsing fails
+
         """
         total_seconds = 0
         if not running_time_str or not isinstance(running_time_str, str):

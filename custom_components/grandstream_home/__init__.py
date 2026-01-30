@@ -161,7 +161,9 @@ def _create_api_instance(api_class, device_type: str, entry: ConfigEntry) -> Any
 
     if device_type == DEVICE_TYPE_GNS_NAS:
         use_https = entry.data.get(CONF_USE_HTTPS, True)
-        port = entry.data.get("port", DEFAULT_HTTPS_PORT if use_https else DEFAULT_HTTP_PORT)
+        port = entry.data.get(
+            "port", DEFAULT_HTTPS_PORT if use_https else DEFAULT_HTTP_PORT
+        )
         return api_class(host, username, password, port=port, use_https=use_https)
 
     # Default fallback

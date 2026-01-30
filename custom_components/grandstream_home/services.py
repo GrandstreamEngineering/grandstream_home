@@ -45,11 +45,12 @@ class APIResolver:
                 return api
         return None
 
-    def _match_api_by_ip(self, device_mac: str) -> Any | None:
-        """Match API by IP address contained in device MAC."""
+    def _match_api_by_ip(self, ip_address: str) -> Any | None:
+        """Match API by IP address."""
         for api in self._get_all_apis():
-            if hasattr(api, "ip_address") and api.ip_address in device_mac:
-                _LOGGER.debug("Found API by IP address: %s", api.ip_address)
+            # Both GDS and GNS use host attribute
+            if hasattr(api, "host") and api.host == ip_address:
+                _LOGGER.debug("Found API by IP address: %s", ip_address)
                 return api
         return None
 
@@ -90,10 +91,16 @@ class APIResolver:
                 device_name_upper = device_name.upper()
                 api_type_upper = api.device_type.upper()
 
-                if DEVICE_TYPE_GDS in device_name_upper and DEVICE_TYPE_GDS in api_type_upper:
+                if (
+                    DEVICE_TYPE_GDS in device_name_upper
+                    and DEVICE_TYPE_GDS in api_type_upper
+                ):
                     _LOGGER.debug("Found API by GDS keyword match")
                     return api
-                if DEVICE_TYPE_GNS_NAS in device_name_upper and DEVICE_TYPE_GNS_NAS in api_type_upper:
+                if (
+                    DEVICE_TYPE_GNS_NAS in device_name_upper
+                    and DEVICE_TYPE_GNS_NAS in api_type_upper
+                ):
                     _LOGGER.debug("Found API by GNS keyword match")
                     return api
         return None
@@ -111,6 +118,7 @@ class APIResolver:
 
         Returns:
             Matched API instance or None
+
         """
         # Extract MAC and IP from device connections
         device_mac = None
@@ -152,6 +160,7 @@ class APIResolver:
 
         Returns:
             API instance or None
+
         """
         if DOMAIN not in self.hass.data:
             _LOGGER.error("Integration %s not initialized", DOMAIN)
@@ -164,17 +173,15 @@ class APIResolver:
 
         # If no device_id specified, return first available API
         if not device_id:
-            if apis:
-                api = apis[0]
-                api_mac = getattr(api, "device_mac", "unknown")
-                api_ip = getattr(api, "ip_address", "unknown")
-                _LOGGER.debug(
-                    "No device ID specified, using first available API: MAC=%s, IP=%s",
-                    api_mac,
-                    api_ip,
-                )
-                return api
-            return None
+            api = apis[0]
+            api_mac = getattr(api, "device_mac", "unknown")
+            api_ip = getattr(api, "ip_address", "unknown")
+            _LOGGER.debug(
+                "No device ID specified, using first available API: MAC=%s, IP=%s",
+                api_mac,
+                api_ip,
+            )
+            return api
 
         # Log all available APIs for debugging
         _LOGGER.debug("Available API instances: %d", len(apis))
@@ -265,12 +272,13 @@ async def async_setup_services(hass: HomeAssistant) -> bool:
         method_name: str,
         *args,
     ) -> None:
-        """Generic helper to call API methods.
+        """Call API methods.
 
         Args:
             call: Service call data
             method_name: Name of API method to call
             *args: Additional arguments to pass to method
+
         """
         device_id = call.data.get("device_id")
         api = api_resolver.get_api_for_device(device_id)

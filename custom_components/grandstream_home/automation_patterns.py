@@ -1,4 +1,5 @@
 """Shared patterns and utilities for device triggers and conditions."""
+
 from __future__ import annotations
 
 import logging
@@ -25,19 +26,18 @@ GNS_CONDITION_TYPES = GNS_TRIGGER_TYPES
 
 # GDS device types
 GDS_TRIGGER_TYPES = {
-    "personnel_intrusion": "Personnel stay/intrusion alarm",
-    "hostage": "Hostage alarm",
-    "tamper": "Tamper alarm",
-    "keypad_error": "Keypad input error alarm",
-    "non_scheduled_access": "Non-scheduled access alarm",
-    "unauthorized_rfid": "Unauthorized RFID card access alarm",
-    "abnormal_sound": "Abnormal sound alarm",
-    "high_temperature": "High temperature alarm",
-    "di_1": "DI 1",
-    "di_2": "DI 2",
-    "di_3": "DI 3",
-    "phone_busy": "Phone status busy",
-    "phone_ringing": "Phone status ringing",
+    "personnel_intrusion": "Intrusion/Loitering Alarm",
+    "hostage": "Hostage Alarm",
+    "tamper": "Tamper Alarm",
+    "keypad_error": "Remote Unlock Wrong Password Alarm",
+    "non_scheduled_access": "Exceeded Access Time Limit Alarm",
+    "unauthorized_rfid": "Unauthorized RFID Card/QR Code Access Alarm",
+    "abnormal_sound": "Unauthorized RFID Card/QR Code Access Alarm",
+    "high_temperature": "High Temperature Alarm",
+    "di_1": "Digital Input 1",
+    "di_2": "Digital Input 2",
+    "phone_busy": "Phone Status Busy",
+    "phone_ringing": "Phone Status Ringing",
 }
 
 GDS_CONDITION_TYPES = {}
@@ -141,6 +141,8 @@ class PatternMatcher:
         r"fan_(\d+)_status",  # fan_1_status
         r"disk_(\d+)_status",  # disk_1_status
         r"pool_(\d+)_status",  # pool_1_status
+        r"disk_(\d+)_temperature",  # disk_1_temperature
+        r"pool_(\d+)_usage",  # pool_1_usage
         r"fan_(\d+)_status_(\d+)",  # fan_1_status_2
         r"disk_(\d+)_status_(\d+)",  # disk_1_status_2
         r"pool_(\d+)_status_(\d+)",  # pool_1_status_2
@@ -158,7 +160,8 @@ class PatternMatcher:
             if match:
                 try:
                     # For patterns with two capture groups, use the first one
-                    return int(match.group(1))
+                    val = int(match.group(1))
+                    return val
                 except (ValueError, IndexError):
                     continue
         return None
@@ -167,6 +170,8 @@ class PatternMatcher:
     def matches_unique_id_patterns(cls, entity_id: str, trigger_type: str) -> bool:
         """Check if entity's unique_id matches trigger patterns."""
         patterns = cls.UNIQUE_ID_PATTERNS.get(trigger_type, [])
+        if not patterns:
+            return False
         return all(pattern in entity_id for pattern in patterns)
 
     @classmethod
@@ -174,6 +179,61 @@ class PatternMatcher:
         """Check if entity_id matches any regex pattern for trigger key."""
         patterns = cls.REGEX_PATTERNS.get(trigger_key, [])
         return any(re.match(pattern, entity_id) for pattern in patterns)
+
+    @staticmethod
+    def _extract_index_from_unique_id(unique_id: str, pattern_type: str) -> int | None:
+        """Extract index from unique_id based on pattern type.
+
+        Args:
+            unique_id: The unique ID string to extract index from
+            pattern_type: Type of pattern (fan_status, disk_status, pool_status, etc.)
+
+        Returns:
+            Extracted index or None if extraction fails
+
+        """
+        try:
+            # Special handling for fan_status which can have "_status_" format
+            if pattern_type == "fan_status" and "_status_" in unique_id:
+                return int(unique_id.split("_status_")[-1])
+
+            # For patterns like disk_temperature, pool_usage, fan_status, disk_status, pool_status
+            # The unique_id format is like "disk_1_temperature", "pool_1_usage", etc.
+            # Extract number between underscores
+            match = re.search(r"_(\d+)_", unique_id)
+            if match:
+                return int(match.group(1))
+
+            # Fallback: extract last number after underscore
+            return int(unique_id.split("_")[-1])
+        except (ValueError, IndexError):
+            return None
+
+    @classmethod
+    def _add_indexed_entity(
+        cls,
+        entry: er.RegistryEntry,
+        entity_dict: dict[int, er.RegistryEntry],
+        pattern_type: str,
+    ) -> None:
+        """Add an indexed entity to the dictionary if index extraction succeeds.
+
+        Args:
+            entry: Entity registry entry to add
+            entity_dict: Dictionary to add the entity to
+            pattern_type: Type of pattern for index extraction
+
+        """
+        index = cls._extract_index_from_unique_id(entry.unique_id, pattern_type)
+        if index is not None and index not in entity_dict:
+            entity_dict[index] = entry
+            if pattern_type == "fan_status":
+                _LOGGER.debug(
+                    "Added fan status entity: %s with index %d (unique_id: %s)",
+                    entry.entity_id,
+                    index,
+                    entry.unique_id,
+                )
 
     @classmethod
     def find_representative_entities(  # noqa: C901
@@ -234,64 +294,24 @@ class PatternMatcher:
                 device_status_entity = entry
 
             # Disk temperature conditions - add for each disk
-            elif "disk_temperature" in entry.unique_id:
-                try:
-                    index = int(entry.unique_id.split("_")[-1])
-                    if index not in disk_temp_entities:
-                        disk_temp_entities[index] = entry
-                except (ValueError, IndexError):
-                    pass
+            elif "disk" in entry.unique_id and "temperature" in entry.unique_id:
+                cls._add_indexed_entity(entry, disk_temp_entities, "disk_temperature")
 
             # Pool usage conditions - add for each pool
-            elif "pool_usage" in entry.unique_id:
-                try:
-                    index = int(entry.unique_id.split("_")[-1])
-                    if index not in pool_usage_entities:
-                        pool_usage_entities[index] = entry
-                except (ValueError, IndexError):
-                    pass
+            elif "pool" in entry.unique_id and "usage" in entry.unique_id:
+                cls._add_indexed_entity(entry, pool_usage_entities, "pool_usage")
 
             # Fan status conditions - add for each fan
-            elif "fan_status" in entry.unique_id:
-                try:
-                    # Handle both "fan_status_0" and "fan_status_1" formats
-                    if "_status_" in entry.unique_id:
-                        index = int(entry.unique_id.split("_status_")[-1])
-                    else:
-                        index = int(entry.unique_id.split("_")[-1])
-
-                    if index not in fan_status_entities:
-                        fan_status_entities[index] = entry
-                        _LOGGER.debug(
-                            "Added fan status entity: %s with index %d (unique_id: %s)",
-                            entry.entity_id,
-                            index,
-                            entry.unique_id,
-                        )
-                except (ValueError, IndexError) as e:
-                    _LOGGER.debug(
-                        "Could not extract index from fan entity %s: %s",
-                        entry.unique_id,
-                        e,
-                    )
+            elif "fan" in entry.unique_id and "status" in entry.unique_id:
+                cls._add_indexed_entity(entry, fan_status_entities, "fan_status")
 
             # Disk status conditions - add for each disk
-            elif "disk_status" in entry.unique_id:
-                try:
-                    index = int(entry.unique_id.split("_")[-1])
-                    if index not in disk_status_entities:
-                        disk_status_entities[index] = entry
-                except (ValueError, IndexError):
-                    pass
+            elif "disk" in entry.unique_id and "status" in entry.unique_id:
+                cls._add_indexed_entity(entry, disk_status_entities, "disk_status")
 
             # Pool status conditions - add for each pool
-            elif "pool_status" in entry.unique_id:
-                try:
-                    index = int(entry.unique_id.split("_")[-1])
-                    if index not in pool_status_entities:
-                        pool_status_entities[index] = entry
-                except (ValueError, IndexError):
-                    pass
+            elif "pool" in entry.unique_id and "status" in entry.unique_id:
+                cls._add_indexed_entity(entry, pool_status_entities, "pool_status")
 
         # Store single instance entities
         if cpu_usage_entity:
@@ -336,6 +356,7 @@ class EntityMatcher:
 
         Args:
             registry: The entity registry to search in.
+
         """
         self.registry = registry
 
@@ -405,7 +426,8 @@ class EntityMatcher:
         index: int | None = None,
     ) -> str | None:
         """Match entities by unique_id patterns."""
-        if not PatternMatcher.matches_unique_id_patterns("", trigger_type):
+        patterns = PatternMatcher.UNIQUE_ID_PATTERNS.get(trigger_type, [])
+        if not patterns:
             return None
 
         _LOGGER.debug("Trying unique_id matching for type %s", trigger_type)
@@ -654,6 +676,7 @@ class IndexCalculator:
 
         Args:
             registry: The entity registry to search in.
+
         """
         self.registry = registry
 

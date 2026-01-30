@@ -1,4 +1,5 @@
 """Data update coordinator for Grandstream devices."""
+
 from datetime import timedelta
 import json
 import logging
@@ -27,6 +28,7 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
             hass: Home Assistant instance
             device_type: Type of the device
             entry_id: Configuration entry ID
+
         """
         super().__init__(
             hass,
@@ -48,6 +50,7 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
 
         Returns:
             str: Processed status string
+
         """
         if not status_data:
             return "unknown"
@@ -78,6 +81,7 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
 
         Returns:
             dict: Updated device data
+
         """
         try:
             api = self.hass.data[DOMAIN][self.entry_id].get("api")
@@ -145,6 +149,7 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
 
         Args:
             data: Pushed data from device
+
         """
         try:
             _LOGGER.debug("Received push data: %s", data)
@@ -177,10 +182,11 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
             raise
 
     def handle_push_data(self, data: dict[str, Any]) -> None:
-        """Synchronous version of push data handling method.
+        """Handle push data synchronously.
 
         Args:
             data: Pushed data from device
+
         """
         try:
             _LOGGER.debug("Processing sync push data: %s", data)
