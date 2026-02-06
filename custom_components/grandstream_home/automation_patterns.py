@@ -1,8 +1,10 @@
 """Shared patterns and utilities for device triggers and conditions."""
+
 from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
 from homeassistant.helpers import entity_registry as er
 
@@ -10,37 +12,52 @@ _LOGGER = logging.getLogger(__name__)
 
 # GNS NAS device types
 GNS_TRIGGER_TYPES = {
-    "cpu_usage_above": "CPU usage above threshold",
-    "memory_usage_above": "Memory usage above threshold",
-    "system_temperature_above": "System temperature above threshold",
-    "cpu_temperature_above": "CPU temperature above threshold",
-    "disk_temperature_above": "Disk temperature above threshold",
-    "pool_usage_above": "Storage pool usage above threshold",
-    "fan_abnormal": "Fan status abnormal",
-    "disk_abnormal": "Disk status abnormal",
-    "pool_abnormal": "Storage pool status abnormal",
+    "cpu_usage_above": "CPU Usage Exceeds Threshold",
+    "memory_usage_above": "Memory Usage Exceeds Threshold",
+    "system_temperature_above": "System Temperature Exceeds Threshold",
+    "cpu_temperature_above": "CPU Temperature Exceeds Threshold",
+    "disk_temperature_above": "Disk Temperature Exceeds Threshold",
+    "pool_usage_above": "Storage Pool Usage Exceeds Threshold",
+    "fan_abnormal": "Fan Status Abnormal",
+    "disk_abnormal": "Disk Status Abnormal",
+    "pool_abnormal": "Storage Pool Status Abnormal",
 }
 
 GNS_CONDITION_TYPES = GNS_TRIGGER_TYPES
 
 # GDS device types
 GDS_TRIGGER_TYPES = {
-    "personnel_intrusion": "Personnel stay/intrusion alarm",
-    "hostage": "Hostage alarm",
-    "tamper": "Tamper alarm",
-    "keypad_error": "Keypad input error alarm",
-    "non_scheduled_access": "Non-scheduled access alarm",
-    "unauthorized_rfid": "Unauthorized RFID card access alarm",
-    "abnormal_sound": "Abnormal sound alarm",
-    "high_temperature": "High temperature alarm",
-    "di_1": "DI 1",
-    "di_2": "DI 2",
-    "di_3": "DI 3",
-    "phone_busy": "Phone status busy",
-    "phone_ringing": "Phone status ringing",
+    "personnel_intrusion": "Intrusion/Loitering Alarm",
+    "hostage": "Duress Alarm",
+    "tamper": "Tamper Alarm",
+    "keypad_error": "Remote Unlock Wrong Password Alarm",
+    "non_scheduled_access": "Exceeded Access Time Limit Alarm",
+    "unauthorized_rfid": "Unauthorized RFID Card/QR Code Access Alarm",
+    "abnormal_sound": "Abnormal Sound Alarm",
+    "high_temperature": "High Temperature Alarm",
+    "di_1": "Digital Input Alarm 1",
+    "di_2": "Digital Input Alarm 2",
+    "door_opened_any": "Door Opened (Any Method)",
+    "door_opened_rfid": "Door Opened by RFID Card",
+    "door_opened_sip": "Door Opened by SIP Call",
+    "door_opened_common_password": "Door Opened by Common Password",
+    "door_opened_personal_password": "Door Opened by Personal Password",
+    "door_opened_card_password": "Door Opened by Card and Password",
+    "door_opened_temp_password": "Door Opened by Temporary Password",
+    "door_opened_forced": "Door Opened by Force",
+    "door_opened_remote": "Door Opened Remotely",
+    "door_opened_http": "Door Opened by HTTP",
+    "door_opened_qrcode": "Door Opened by QR Code",
+    "door_opened_ble": "Door Opened by Bluetooth",
+    "door_opened_nfc": "Door Opened by NFC",
+    "door_opened_pin": "Door Opened by PIN Code",
+    "door_opened_guest_qrcode": "Door Opened by Guest QR Code",
+    "door_opened_touch_pass": "Door Opened by Touch Pass",
+    "phone_busy": "Phone Status Busy",
+    "phone_ringing": "Phone Status Ringing",
 }
 
-GDS_CONDITION_TYPES = {}
+GDS_CONDITION_TYPES: dict[str, str] = {}
 
 # Combined types for backward compatibility
 TRIGGER_TYPES = {**GNS_TRIGGER_TYPES, **GDS_TRIGGER_TYPES}
@@ -60,6 +77,29 @@ GDS_EVENT_MAPPING = {
     "di_2": "9",
     "di_3": "10",
 }
+
+# Door access type mapping (for door_opened event with type="access")
+DOOR_ACCESS_TYPE_MAPPING = {
+    "door_opened_any": None,  # Match any access type
+    "door_opened_rfid": "0",
+    "door_opened_sip": "1",
+    "door_opened_common_password": "2",
+    "door_opened_personal_password": "3",
+    "door_opened_card_password": "4",
+    "door_opened_temp_password": "5",
+    "door_opened_forced": "6",
+    "door_opened_remote": "7",
+    "door_opened_http": "8",
+    "door_opened_qrcode": "9",
+    "door_opened_ble": "10",
+    "door_opened_nfc": "11",
+    "door_opened_pin": "12",
+    "door_opened_guest_qrcode": "13",
+    "door_opened_touch_pass": "14",
+}
+
+# All door access triggers (for easy checking)
+DOOR_ACCESS_TRIGGERS = set(DOOR_ACCESS_TYPE_MAPPING.keys())
 
 # Event-based GDS triggers
 GDS_EVENT_TRIGGERS = set(GDS_EVENT_MAPPING.keys())
@@ -106,6 +146,8 @@ class PatternMatcher:
         "memory_usage_above": ["memory", "usage", "percent"],
         "system_temperature_above": ["system", "temperature"],
         "cpu_temperature_above": ["cpu", "temperature"],
+        "phone_busy": ["phone", "status"],
+        "phone_ringing": ["phone", "status"],
     }
 
     # Entity ID regex patterns
@@ -141,6 +183,8 @@ class PatternMatcher:
         r"fan_(\d+)_status",  # fan_1_status
         r"disk_(\d+)_status",  # disk_1_status
         r"pool_(\d+)_status",  # pool_1_status
+        r"disk_(\d+)_temperature",  # disk_1_temperature
+        r"pool_(\d+)_usage",  # pool_1_usage
         r"fan_(\d+)_status_(\d+)",  # fan_1_status_2
         r"disk_(\d+)_status_(\d+)",  # disk_1_status_2
         r"pool_(\d+)_status_(\d+)",  # pool_1_status_2
@@ -167,6 +211,8 @@ class PatternMatcher:
     def matches_unique_id_patterns(cls, entity_id: str, trigger_type: str) -> bool:
         """Check if entity's unique_id matches trigger patterns."""
         patterns = cls.UNIQUE_ID_PATTERNS.get(trigger_type, [])
+        if not patterns:
+            return False
         return all(pattern in entity_id for pattern in patterns)
 
     @classmethod
@@ -175,8 +221,63 @@ class PatternMatcher:
         patterns = cls.REGEX_PATTERNS.get(trigger_key, [])
         return any(re.match(pattern, entity_id) for pattern in patterns)
 
+    @staticmethod
+    def _extract_index_from_unique_id(unique_id: str, pattern_type: str) -> int | None:
+        """Extract index from unique_id based on pattern type.
+
+        Args:
+            unique_id: The unique ID string to extract index from
+            pattern_type: Type of pattern (fan_status, disk_status, pool_status, etc.)
+
+        Returns:
+            Extracted index or None if extraction fails
+
+        """
+        try:
+            # Special handling for fan_status which can have "_status_" format
+            if pattern_type == "fan_status" and "_status_" in unique_id:
+                return int(unique_id.split("_status_")[-1])
+
+            # For patterns like disk_temperature, pool_usage, fan_status, disk_status, pool_status
+            # The unique_id format is like "disk_1_temperature", "pool_1_usage", etc.
+            # Extract number between underscores
+            match = re.search(r"_(\d+)_", unique_id)
+            if match:
+                return int(match.group(1))
+
+            # Fallback: extract last number after underscore
+            return int(unique_id.split("_")[-1])
+        except (ValueError, IndexError):
+            return None
+
     @classmethod
-    def find_representative_entities(  # noqa: C901
+    def _add_indexed_entity(
+        cls,
+        entry: er.RegistryEntry,
+        entity_dict: dict[int, er.RegistryEntry],
+        pattern_type: str,
+    ) -> None:
+        """Add an indexed entity to the dictionary if index extraction succeeds.
+
+        Args:
+            entry: Entity registry entry to add
+            entity_dict: Dictionary to add the entity to
+            pattern_type: Type of pattern for index extraction
+
+        """
+        index = cls._extract_index_from_unique_id(entry.unique_id, pattern_type)
+        if index is not None and index not in entity_dict:
+            entity_dict[index] = entry
+            if pattern_type == "fan_status":
+                _LOGGER.debug(
+                    "Added fan status entity: %s with index %d (unique_id: %s)",
+                    entry.entity_id,
+                    index,
+                    entry.unique_id,
+                )
+
+    @classmethod
+    def find_representative_entities(
         cls, entities: list[er.RegistryEntry]
     ) -> dict[str, er.RegistryEntry]:
         """Find representative entities for each condition/trigger type."""
@@ -192,11 +293,11 @@ class PatternMatcher:
         device_status_entity = None
 
         # Multi-index entities (use dictionaries)
-        disk_temp_entities = {}
-        pool_usage_entities = {}
-        fan_status_entities = {}
-        disk_status_entities = {}
-        pool_status_entities = {}
+        disk_temp_entities: dict[int, Any] = {}
+        pool_usage_entities: dict[int, Any] = {}
+        fan_status_entities: dict[int, Any] = {}
+        disk_status_entities: dict[int, Any] = {}
+        pool_status_entities: dict[int, Any] = {}
 
         # Sort entities to ensure consistent index ordering
         sorted_entities = sorted(entities, key=lambda e: e.entity_id)
@@ -234,64 +335,24 @@ class PatternMatcher:
                 device_status_entity = entry
 
             # Disk temperature conditions - add for each disk
-            elif "disk_temperature" in entry.unique_id:
-                try:
-                    index = int(entry.unique_id.split("_")[-1])
-                    if index not in disk_temp_entities:
-                        disk_temp_entities[index] = entry
-                except (ValueError, IndexError):
-                    pass
+            elif "disk" in entry.unique_id and "temperature" in entry.unique_id:
+                cls._add_indexed_entity(entry, disk_temp_entities, "disk_temperature")
 
             # Pool usage conditions - add for each pool
-            elif "pool_usage" in entry.unique_id:
-                try:
-                    index = int(entry.unique_id.split("_")[-1])
-                    if index not in pool_usage_entities:
-                        pool_usage_entities[index] = entry
-                except (ValueError, IndexError):
-                    pass
+            elif "pool" in entry.unique_id and "usage" in entry.unique_id:
+                cls._add_indexed_entity(entry, pool_usage_entities, "pool_usage")
 
             # Fan status conditions - add for each fan
-            elif "fan_status" in entry.unique_id:
-                try:
-                    # Handle both "fan_status_0" and "fan_status_1" formats
-                    if "_status_" in entry.unique_id:
-                        index = int(entry.unique_id.split("_status_")[-1])
-                    else:
-                        index = int(entry.unique_id.split("_")[-1])
-
-                    if index not in fan_status_entities:
-                        fan_status_entities[index] = entry
-                        _LOGGER.debug(
-                            "Added fan status entity: %s with index %d (unique_id: %s)",
-                            entry.entity_id,
-                            index,
-                            entry.unique_id,
-                        )
-                except (ValueError, IndexError) as e:
-                    _LOGGER.debug(
-                        "Could not extract index from fan entity %s: %s",
-                        entry.unique_id,
-                        e,
-                    )
+            elif "fan" in entry.unique_id and "status" in entry.unique_id:
+                cls._add_indexed_entity(entry, fan_status_entities, "fan_status")
 
             # Disk status conditions - add for each disk
-            elif "disk_status" in entry.unique_id:
-                try:
-                    index = int(entry.unique_id.split("_")[-1])
-                    if index not in disk_status_entities:
-                        disk_status_entities[index] = entry
-                except (ValueError, IndexError):
-                    pass
+            elif "disk" in entry.unique_id and "status" in entry.unique_id:
+                cls._add_indexed_entity(entry, disk_status_entities, "disk_status")
 
             # Pool status conditions - add for each pool
-            elif "pool_status" in entry.unique_id:
-                try:
-                    index = int(entry.unique_id.split("_")[-1])
-                    if index not in pool_status_entities:
-                        pool_status_entities[index] = entry
-                except (ValueError, IndexError):
-                    pass
+            elif "pool" in entry.unique_id and "status" in entry.unique_id:
+                cls._add_indexed_entity(entry, pool_status_entities, "pool_status")
 
         # Store single instance entities
         if cpu_usage_entity:
@@ -302,6 +363,9 @@ class PatternMatcher:
             result["cpu_temperature_above"] = cpu_temp_entity
         if system_temp_entity:
             result["system_temperature_above"] = system_temp_entity
+        if phone_status_entity:
+            result["phone_busy"] = phone_status_entity
+            result["phone_ringing"] = phone_status_entity
 
         # Store multi-index entities (use first one as representative)
         if disk_temp_entities:
@@ -331,11 +395,12 @@ class PatternMatcher:
 class EntityMatcher:
     """Matcher for finding entities based on trigger/condition types."""
 
-    def __init__(self, registry: er.EntityRegistry):
+    def __init__(self, registry: er.EntityRegistry) -> None:
         """Initialize the index calculator.
 
         Args:
             registry: The entity registry to search in.
+
         """
         self.registry = registry
 
@@ -371,24 +436,24 @@ class EntityMatcher:
             return "sensor.grandstream_gds_events"
 
         # Try unique_id matching first (most reliable)
-        entity = self._match_by_unique_id(entities, trigger_type, index)
-        if entity:
-            return entity
+        entity_id = self._match_by_unique_id(entities, trigger_type, index)
+        if entity_id:
+            return entity_id
 
         # Try entity_id keyword matching
-        entity = self._match_by_keyword(entities, trigger_type, index)
-        if entity:
-            return entity
+        entity_id = self._match_by_keyword(entities, trigger_type, index)
+        if entity_id:
+            return entity_id
 
         # Try regex pattern matching
-        entity = self._match_by_regex(entities, trigger_type, index)
-        if entity:
-            return entity
+        entity_id = self._match_by_regex(entities, trigger_type, index)
+        if entity_id:
+            return entity_id
 
         # Final fallback: substring matching
-        entity = self._match_by_substring(entities, trigger_type, index)
-        if entity:
-            return entity
+        entity_id = self._match_by_substring(entities, trigger_type, index)
+        if entity_id:
+            return entity_id
 
         _LOGGER.debug(
             "No matching entity found for type: %s, device: %s, index: %s",
@@ -405,7 +470,8 @@ class EntityMatcher:
         index: int | None = None,
     ) -> str | None:
         """Match entities by unique_id patterns."""
-        if not PatternMatcher.matches_unique_id_patterns("", trigger_type):
+        patterns = PatternMatcher.UNIQUE_ID_PATTERNS.get(trigger_type, [])
+        if not patterns:
             return None
 
         _LOGGER.debug("Trying unique_id matching for type %s", trigger_type)
@@ -649,11 +715,12 @@ class EntityMatcher:
 class IndexCalculator:
     """Calculator for maximum index values for indexed entities."""
 
-    def __init__(self, registry: er.EntityRegistry):
+    def __init__(self, registry: er.EntityRegistry) -> None:
         """Initialize the index calculator.
 
         Args:
             registry: The entity registry to search in.
+
         """
         self.registry = registry
 
@@ -726,7 +793,12 @@ class AutomationTypeClassifier:
     @classmethod
     def is_gds_event_trigger(cls, trigger_type: str) -> bool:
         """Check if trigger is a GDS event-based trigger."""
-        return trigger_type in GDS_EVENT_TRIGGERS
+        return trigger_type in GDS_EVENT_TRIGGERS or trigger_type in DOOR_ACCESS_TRIGGERS
+
+    @classmethod
+    def is_door_access_trigger(cls, trigger_type: str) -> bool:
+        """Check if trigger is a door access trigger."""
+        return trigger_type in DOOR_ACCESS_TRIGGERS
 
     @classmethod
     def is_threshold_trigger(cls, trigger_type: str) -> bool:
@@ -747,6 +819,11 @@ class AutomationTypeClassifier:
     def get_gds_event_code(cls, trigger_type: str) -> str | None:
         """Get GDS event code for trigger type."""
         return GDS_EVENT_MAPPING.get(trigger_type)
+
+    @classmethod
+    def get_door_access_type(cls, trigger_type: str) -> str | None:
+        """Get door access type for trigger type."""
+        return DOOR_ACCESS_TYPE_MAPPING.get(trigger_type)
 
 
 class AutomationConditionChecker:
@@ -774,12 +851,32 @@ class AutomationConditionChecker:
                         "Invalid numeric value for threshold trigger: %s", state_value
                     )
                     return False
-                else:
-                    return current_value >= threshold
+                return current_value >= threshold
             return False
 
         # Status-based triggers
         state_value_lower = state_value.lower()
+
+        # Phone status triggers
+        if trigger_type == "phone_busy":
+            _LOGGER.debug(
+                "Checking phone busy trigger: state_value='%s' (lower='%s')",
+                state_value,
+                state_value_lower,
+            )
+            should_fire = "busy" in state_value_lower
+            _LOGGER.debug("Phone busy trigger should fire: %s", should_fire)
+            return should_fire
+
+        if trigger_type == "phone_ringing":
+            _LOGGER.debug(
+                "Checking phone ringing trigger: state_value='%s' (lower='%s')",
+                state_value,
+                state_value_lower,
+            )
+            should_fire = "ringing" in state_value_lower or "ring" in state_value_lower
+            _LOGGER.debug("Phone ringing trigger should fire: %s", should_fire)
+            return should_fire
 
         if trigger_type == "fan_abnormal":
             _LOGGER.debug(
@@ -848,8 +945,7 @@ class AutomationConditionChecker:
                         "Invalid numeric value for threshold condition: %s", state_value
                     )
                     return False
-                else:
-                    return result
+                return result
             return False
 
         # Status-based conditions
@@ -880,6 +976,8 @@ __all__ = [
     "CONDITION_TYPES",
     "DEFAULT_CONDITION_THRESHOLDS",
     "DEFAULT_THRESHOLDS",
+    "DOOR_ACCESS_TRIGGERS",
+    "DOOR_ACCESS_TYPE_MAPPING",
     "GDS_CONDITION_TYPES",
     "GDS_EVENT_MAPPING",
     "GDS_EVENT_TRIGGERS",

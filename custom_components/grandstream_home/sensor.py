@@ -1,4 +1,5 @@
 """Sensor platform for Grandstream integration."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -258,11 +259,14 @@ class GrandstreamSensor(SensorEntity):
         for part in parts:
             # Handle list index like key[0]
             while "[" in part and "]" in part:
-                base = part[:part.index("[")]
-                idx_str = part[part.index("[") + 1:part.index("]")]
+                base = part[: part.index("[")]
+                idx_str = part[part.index("[") + 1 : part.index("]")]
                 if base:
                     if isinstance(cur, dict):
-                        cur = cur.get(base, None)
+                        temp = cur.get(base)
+                        if temp is None:
+                            return None
+                        cur = temp
                     else:
                         return None
                 try:
@@ -277,10 +281,13 @@ class GrandstreamSensor(SensorEntity):
                 if part.endswith("]"):
                     part = ""
                 else:
-                    part = part[part.index("]") + 1:]
+                    part = part[part.index("]") + 1 :]
             if part:
                 if isinstance(cur, dict):
-                    cur = cur.get(part, None)
+                    temp = cur.get(part)
+                    if temp is None:
+                        return None
+                    cur = temp
                 else:
                     return None
         return cur
@@ -329,7 +336,7 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
     device = hass.data[DOMAIN][config_entry.entry_id]["device"]
 
-    entities = []
+    entities: list[GrandstreamSensor] = []
 
     if getattr(device, "device_type", None) == DEVICE_TYPE_GNS_NAS:
         # Add system sensors

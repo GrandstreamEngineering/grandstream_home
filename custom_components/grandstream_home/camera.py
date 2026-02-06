@@ -28,7 +28,9 @@ from homeassistant.components.ffmpeg import (
     CONF_INPUT,
     get_ffmpeg_manager,
 )
-from homeassistant.components.ffmpeg.camera import FFmpegCamera
+from homeassistant.components.ffmpeg.camera import (  # pylint: disable=hass-component-root-import
+    FFmpegCamera,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
@@ -42,6 +44,7 @@ from .const import (
     DOMAIN,
 )
 from .device import GrandstreamDevice
+from .utils import decrypt_password
 
 
 def is_valid_jpeg(image_data: bytes) -> bool:
@@ -52,6 +55,7 @@ def is_valid_jpeg(image_data: bytes) -> bool:
 
     Returns:
         True if the image is a valid JPEG, False otherwise
+
     """
     if not image_data or len(image_data) < 100:
         return False
@@ -64,15 +68,14 @@ def is_valid_jpeg(image_data: bytes) -> bool:
         return False
     except (OSError, ValueError):
         return False
-    else:
-        return True
+    return True
 
 
 # Cache for loaded fonts to avoid repeated filesystem checks
-_FONT_CACHE = {}
+_FONT_CACHE: dict[int, Any] = {}
 
 
-def _get_cached_font(size: int = 11) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+def _get_cached_font(size: int = 11) -> Any:
     """Get a cached font or load and cache a new one.
 
     Args:
@@ -80,6 +83,7 @@ def _get_cached_font(size: int = 11) -> ImageFont.FreeTypeFont | ImageFont.Image
 
     Returns:
         PIL font object
+
     """
     # Check cache first
     if size in _FONT_CACHE:
@@ -99,7 +103,7 @@ def _get_cached_font(size: int = 11) -> ImageFont.FreeTypeFont | ImageFont.Image
 
         for path in font_paths:
             if Path(path).exists():
-                font = ImageFont.truetype(path, size)
+                font: Any = ImageFont.truetype(path, size)
                 _FONT_CACHE[size] = font
                 return font
     except (OSError, ImportError):
@@ -122,6 +126,7 @@ def generate_blank_image(width: int = 640, height: int = 480) -> bytes | None:
 
     Returns:
         JPEG image data as bytes or None if generation failed
+
     """
     try:
         # Create blank image with dark theme color
@@ -182,6 +187,7 @@ async def async_setup_entry(
         2. Check if RTSP is enabled
         3. Get RTSP configuration from the device
         4. Create and add camera entities to Home Assistant
+
     """
     # Early validation to avoid unnecessary work
     device_type = entry.data.get(CONF_DEVICE_TYPE)
@@ -208,12 +214,14 @@ async def async_setup_entry(
 
     # Get RTSP credentials from config entry
     rtsp_username = entry.data.get(CONF_RTSP_USERNAME)
-    rtsp_password = entry.data.get(CONF_RTSP_PASSWORD)
+    encrypted_rtsp_password = entry.data.get(CONF_RTSP_PASSWORD)
+
+    # Decrypt RTSP password
+    rtsp_password = decrypt_password(encrypted_rtsp_password, entry.unique_id or "default") if encrypted_rtsp_password else None
 
     # Validate credentials early
     if not rtsp_username or not rtsp_password:
-        _LOGGER.error(
-            "RTSP enabled but credentials missing. Please set rtsp_username and rtsp_password in config."
+        _LOGGER.error("RTSP enabled but credentials missing. Please set rtsp_username and rtsp_password in config"
         )
         return
 
@@ -294,6 +302,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
             rtsp_url: RTSP stream URL
             snapshot_url: HTTP snapshot URL
             device: Grandstream device instance for device registry linkage
+
         """
         super().__init__(hass, config)
 
@@ -308,15 +317,15 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
             self._attr_device_info = device.device_info
 
         self._snapshot_url = snapshot_url
-        self._last_image = None
-        self._last_image_time = 0
+        self._last_image: bytes | None = None
+        self._last_image_time: float = 0.0
         self._input = config[CONF_INPUT]
         self._extra_arguments = config.get(CONF_EXTRA_ARGUMENTS, "")
         self._manager = get_ffmpeg_manager(hass)
         self._lock = asyncio.Lock()
         self._retry_count = 0  # Add retry counter
         self._consecutive_failures = 0  # Track consecutive failures for adaptive retry
-        self._last_failure_time = 0  # Track when last failure occurred
+        self._last_failure_time: float = 0.0  # Track when last failure occurred
 
     # Helper methods for logging
     def _log_debug(self, message: str, *args) -> None:
@@ -362,6 +371,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             True if image is valid and cached, False otherwise
+
         """
         if not image_data or len(image_data) < 100:
             return False
@@ -392,6 +402,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             str: RTSP stream URL
+
         """
         return self._input
 
@@ -424,6 +435,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Return:
             Optional[bytes]: JPEG format image data, returns None if all methods fail
+
         """
         current_time = time.time()
         width = width or 640
@@ -433,6 +445,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         # Early return if we have a valid cached image
         if self._is_cache_valid(current_time):
+            assert self._last_image is not None
             self._log_debug(
                 "Returning cached image, age=%s seconds, size=%s bytes",
                 int(current_time - self._last_image_time),
@@ -484,6 +497,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             True if successful and image cached, False otherwise
+
         """
         image_data = await self._fetch_http_snapshot()
         if not image_data:
@@ -501,6 +515,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             True if successful and image cached, False otherwise
+
         """
         image_data = await self._fetch_ffmpeg_image()
         if not image_data:
@@ -518,6 +533,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             True if successful and image cached, False otherwise
+
         """
         image_data = await self._get_image_with_subprocess()
         if not image_data:
@@ -547,6 +563,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             Raw image data or None if fetching failed
+
         """
         try:
             self._log_debug("Starting HTTP snapshot: %s", self._snapshot_url)
@@ -574,9 +591,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
             ):
                 if response.status == 200:
                     return await response.read()
-                self._log_debug(
-                    "HTTP request failed with status: %s", response.status
-                )
+                self._log_debug("HTTP request failed with status: %s", response.status)
 
         except TimeoutError:
             self._log_debug("HTTP request timed out")
@@ -590,6 +605,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             Raw image data or None if fetching failed
+
         """
         image = None
         try:
@@ -622,6 +638,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
         Returns:
             Raw image data or None if fetching failed
+
         """
         try:
             self._log_debug("Starting subprocess FFmpeg call")
@@ -658,7 +675,7 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
 
                 # Wait for command completion with timeout
                 try:
-                    stdout, stderr = await asyncio.wait_for(
+                    _, _ = await asyncio.wait_for(
                         process.communicate(),
                         timeout=FFMPEG_TIMEOUT
                         + 2,  # Slightly longer timeout for subprocess
@@ -691,3 +708,21 @@ class GrandstreamFFmpegCamera(FFmpegCamera):
             self._log_debug("Subprocess error: %s", e)
 
         return None
+
+    def camera_image(
+        self, width: int | None = None, height: int | None = None
+    ) -> bytes | None:
+        """Return camera image."""
+        return asyncio.run(self.async_camera_image(width, height))
+
+    def turn_on(self) -> None:
+        """Turn on camera (no-op for RTSP cameras)."""
+
+    def turn_off(self) -> None:
+        """Turn off camera (no-op for RTSP cameras)."""
+
+    def enable_motion_detection(self) -> None:
+        """Enable motion detection (not supported)."""
+
+    def disable_motion_detection(self) -> None:
+        """Disable motion detection (not supported)."""

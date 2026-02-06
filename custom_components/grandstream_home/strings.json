@@ -1,0 +1,44 @@
+{
+  "services": {
+    "reboot_device": {
+      "name": "Restart",
+      "description": "Restart the device.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The device to restart."
+        }
+      }
+    },
+    "sleep_device": {
+      "name": "Sleep",
+      "description": "Put the NAS into sleep mode.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The device to put to sleep."
+        }
+      }
+    },
+    "wake_device": {
+      "name": "Wake Up",
+      "description": "Wake up the NAS from sleep mode.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The device to wake up."
+        }
+      }
+    },
+    "shutdown_device": {
+      "name": "Shut Down",
+      "description": "Shut down the NAS.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The device to shut down."
+        }
+      }
+    }
+  }
+}

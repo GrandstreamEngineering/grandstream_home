@@ -12,13 +12,12 @@ import socket
 import time
 from typing import Any, TypeVar
 
-from custom_components.grandstream_home.const import (
+import requests
+from requests import RequestException, Session
+import urllib3
+
+from ..const import (
     ACCEPT_JSON,
-    CONF_PORT,
-    CONF_RTSP_ENABLE,
-    CONF_RTSP_PASSWORD,
-    CONF_RTSP_USERNAME,
-    CONF_USE_HTTPS,
     CONTENT_TYPE_FORM,
     CONTENT_TYPE_JSON,
     DEFAULT_USERNAME,
@@ -30,13 +29,8 @@ from custom_components.grandstream_home.const import (
     HTTP_METHOD_GET,
     HTTP_METHOD_POST,
 )
-from custom_components.grandstream_home.error import GrandstreamRTSPError
-from custom_components.grandstream_home.utils import format_host_url
-import requests
-from requests import RequestException, Session
-import urllib3
-
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
+from ..error import GrandstreamRTSPError
+from ..utils import format_host_url
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -122,7 +116,6 @@ class GDSPhoneAPI:
         password: str | None = None,
         rtsp_username: str | None = None,
         rtsp_password: str | None = None,
-        entry: Any | None = None,
         port: int | None = None,
         use_https: bool = False,
     ) -> None:
@@ -131,28 +124,13 @@ class GDSPhoneAPI:
         Args:
             host: Device IP address or hostname
             username: Device login username
-            password: Device login password
+            password: Device login password (plain text)
             rtsp_username: RTSP username
             rtsp_password: RTSP password
-            entry: Home Assistant config entry (takes precedence)
             port: Device port (optional, auto-determined)
             use_https: Use HTTPS protocol
+
         """
-        # Load from entry if provided
-        if entry:
-            host = entry.data.get(CONF_HOST)
-            username = entry.data.get(CONF_USERNAME)
-            password = entry.data.get(CONF_PASSWORD)
-            use_https = entry.data.get(CONF_USE_HTTPS, False)
-            port = entry.data.get(CONF_PORT, DEFAULT_HTTP_PORT)
-
-            if entry.data.get(CONF_RTSP_ENABLE, False):
-                rtsp_username = entry.data.get(CONF_RTSP_USERNAME)
-                rtsp_password = entry.data.get(CONF_RTSP_PASSWORD)
-                _LOGGER.debug(
-                    "RTSP credentials loaded from config: username=%s", rtsp_username
-                )
-
         # Core attributes
         self.host = host
         self.username = username
@@ -165,11 +143,13 @@ class GDSPhoneAPI:
         protocol = "https" if use_https else "http"
         default_port = DEFAULT_HTTPS_PORT if use_https else DEFAULT_HTTP_PORT
 
+        if not self.host:
+            raise ValueError("Host is required")
+
+        host_url = format_host_url(self.host)
         if self.port == default_port:
-            host_url = format_host_url(self.host)
             self.base_address = f"{protocol}://{host_url}"
         else:
-            host_url = format_host_url(self.host)
             self.base_address = f"{protocol}://{host_url}:{self.port}"
 
         # Session setup
@@ -189,7 +169,6 @@ class GDSPhoneAPI:
         # RTSP configuration
         self.rtsp_username = rtsp_username
         self.rtsp_password = rtsp_password
-        self.entry = entry
 
         # Login failure tracking to prevent account lockout
         self._login_failed_count: int = 0
@@ -212,7 +191,7 @@ class GDSPhoneAPI:
 
     @staticmethod
     def _require_auth(func: Callable[..., T]) -> Callable[..., T]:
-        """Decorator to ensure authentication before API calls."""
+        """Ensure authentication before API calls."""
 
         @wraps(func)
         def wrapper(self: GDSPhoneAPI, *args: Any, **kwargs: Any) -> T:
@@ -223,9 +202,9 @@ class GDSPhoneAPI:
 
     @staticmethod
     def _handle_session_retry(
-        func: Callable[..., dict[str, Any]]
+        func: Callable[..., dict[str, Any]],
     ) -> Callable[..., dict[str, Any]]:
-        """Decorator to handle session expiration with auto-retry."""
+        """Handle session expiration with auto-retry."""
 
         @wraps(func)
         def wrapper(self: GDSPhoneAPI, *args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -233,7 +212,7 @@ class GDSPhoneAPI:
 
             # Check for session expiration
             if self._is_session_expired(result):
-                _LOGGER.info("Session expired, re-authenticating...")
+                _LOGGER.info("Session expired, re-authenticating")
                 # Mark as not authenticated when session expires
                 self._is_authenticated = False
                 if self.login():
@@ -261,7 +240,10 @@ class GDSPhoneAPI:
 
         Returns:
             Headers dictionary
+
         """
+        if self.host is None:
+            raise ValueError("Host must be set before making requests")
         headers = {
             HEADER_ORIGIN: self.base_address,
             HEADER_HOST: (
@@ -311,6 +293,7 @@ class GDSPhoneAPI:
 
         Returns:
             Parsed JSON response or error dict
+
         """
         base_url = self.base_url_root if use_root_url else self.base_url
         url = f"{base_url}{endpoint}"
@@ -321,12 +304,19 @@ class GDSPhoneAPI:
             method.upper(),
             url,
             params,
-            {k: "***" if "password" in k.lower() else v for k, v in data.items()}
-            if data
-            else None,
-            {k: "***" if "password" in k.lower() else v for k, v in json_data.items()}
-            if json_data
-            else None,
+            (
+                {k: "***" if "password" in k.lower() else v for k, v in data.items()}
+                if data
+                else None
+            ),
+            (
+                {
+                    k: "***" if "password" in k.lower() else v
+                    for k, v in json_data.items()
+                }
+                if json_data
+                else None
+            ),
         )
 
         try:
@@ -351,6 +341,7 @@ class GDSPhoneAPI:
                 response_json = response.json()
                 # Log response details (masking sensitive data)
                 _LOGGER.debug("Response from %s: %s", endpoint, response_json)
+                self._is_online = True  # Device responded successfully, mark as online
                 return response_json
 
             _LOGGER.error("HTTP error %s for %s", response.status_code, endpoint)
@@ -380,14 +371,14 @@ class GDSPhoneAPI:
         if not self.session_id:
             # If device is reported offline, no need to attempt login
             if not self._is_online:
-                _LOGGER.warning("Device is offline, skipping authentication attempt.")
+                _LOGGER.warning("Device is offline, skipping authentication attempt")
                 raise RuntimeError("Device is offline")
 
             # Check if account is locked
             if self._account_locked and time.time() < self._account_lock_expire_time:
                 remaining_time = int(self._account_lock_expire_time - time.time())
                 raise RuntimeError(
-                    f"Account is locked. Will wait {remaining_time} seconds before retrying."
+                    f"Account is locked. Will wait {remaining_time} seconds before retrying"
                 )
 
             # Check login failure threshold
@@ -396,12 +387,12 @@ class GDSPhoneAPI:
                 time_since_last_attempt = time.time() - self._last_login_attempt
                 if time_since_last_attempt < 300:
                     raise RuntimeError(
-                        f"Too many login failures. Will wait {int(300 - time_since_last_attempt)} seconds before retrying."
+                        f"Too many login failures. Will wait {int(300 - time_since_last_attempt)} seconds before retrying"
                     )
                 # Reset counter after waiting period
                 self._login_failed_count = 0
 
-            _LOGGER.info("Not authenticated, attempting login...")
+            _LOGGER.info("Not authenticated, attempting login")
             if not self.login():
                 raise RuntimeError("Authentication failed")
             _LOGGER.info("Authentication successful")
@@ -415,6 +406,7 @@ class GDSPhoneAPI:
 
         Returns:
             True if session expired
+
         """
         if not isinstance(response, dict):
             return False
@@ -440,6 +432,7 @@ class GDSPhoneAPI:
 
         Returns:
             True if login successful
+
         """
         _LOGGER.info("Attempting GDS device login")
         return self._perform_login()
@@ -452,6 +445,7 @@ class GDSPhoneAPI:
 
         Raises:
             RuntimeError: If challenge retrieval fails
+
         """
         # Generate a random challenge access hass
         challenge_access_hass = hashlib.sha256(str(time.time()).encode()).hexdigest()
@@ -466,7 +460,9 @@ class GDSPhoneAPI:
         if response.get("response") == RESPONSE_SUCCESS:
             challenge = response.get("body")
             _LOGGER.debug("Challenge token received")
-            return challenge
+            if challenge is None:
+                raise RuntimeError("Challenge token is None")
+            return str(challenge)
 
         error_msg = f"Failed to get challenge: {response}"
         _LOGGER.error("%s", error_msg)
@@ -480,6 +476,7 @@ class GDSPhoneAPI:
 
         Returns:
             SHA256 hassed password
+
         """
         login_string = f"{self.password}{challenge}"
         return hashlib.sha256(login_string.encode("utf-8")).hexdigest()
@@ -489,13 +486,13 @@ class GDSPhoneAPI:
 
         Returns:
             True if successful
+
         """
         try:
             # Check if account is locked
             if self._account_locked and time.time() < self._account_lock_expire_time:
                 remaining_time = int(self._account_lock_expire_time - time.time())
-                _LOGGER.warning(
-                    "Account is locked. Will wait %d seconds before retrying.",
+                _LOGGER.warning("Account is locked. Will wait %d seconds before retrying",
                     remaining_time,
                 )
                 return False
@@ -548,8 +545,8 @@ class GDSPhoneAPI:
             ):
                 lock_time = response.get("lockTime", 300)
                 _LOGGER.error(
-                    "Login failed: Account is locked. Lock time: %d seconds. "
-                    "Will wait for the lock to expire before trying again.",
+                    "Login failed: Account is locked. Lock time: %d seconds "
+                    "Will wait for the lock to expire before trying again",
                     lock_time,
                 )
                 # Mark account as locked and set expiration time
@@ -564,14 +561,16 @@ class GDSPhoneAPI:
             # Login failed - this is an authentication failure, increment count
             self._login_failed_count += 1
             _LOGGER.error(
-                "Authentication failed (attempt %d/3): %s", self._login_failed_count, response
+                "Authentication failed (attempt %d/3): %s",
+                self._login_failed_count,
+                response,
             )
 
             # Warn if approaching lockout threshold
             if self._login_failed_count >= 2:
                 _LOGGER.warning(
-                    "Multiple authentication failures detected (%d/3). "
-                    "Further failures may lock the account for 5 minutes.",
+                    "Multiple authentication failures detected (%d/3) "
+                    "Further failures may lock the account for 5 minutes",
                     self._login_failed_count,
                 )
 
@@ -589,9 +588,7 @@ class GDSPhoneAPI:
         except RuntimeError as e:
             # Check if this is a "device offline" error (not authentication failure)
             if "offline" in str(e).lower():
-                _LOGGER.warning(
-                    "Login skipped: %s", e
-                )
+                _LOGGER.warning("Login skipped: %s", e)
                 self._is_authenticated = False
             else:
                 # This is likely an authentication failure
@@ -608,15 +605,15 @@ class GDSPhoneAPI:
         except RequestException as e:
             # Check if this is a connection-related error
             if "connection" in str(e).lower() or "timeout" in str(e).lower():
-                _LOGGER.warning(
-                    "Login request failed due to connection issues: %s", e
-                )
+                _LOGGER.warning("Login request failed due to connection issues: %s", e)
                 self._is_authenticated = False
                 self._is_online = False
             else:
                 # Other request errors may count as authentication failures
                 self._login_failed_count += 1
-                _LOGGER.error("Login error (attempt %d/3): %s", self._login_failed_count, e)
+                _LOGGER.error(
+                    "Login error (attempt %d/3): %s", self._login_failed_count, e
+                )
                 self._is_authenticated = False
         return self._is_authenticated
 
@@ -626,6 +623,7 @@ class GDSPhoneAPI:
 
         Returns:
             True if authenticated (has valid session) and not locked
+
         """
         return (
             self._is_authenticated
@@ -639,6 +637,7 @@ class GDSPhoneAPI:
 
         Returns:
             True if device is online (regardless of authentication state)
+
         """
         return self._is_online
 
@@ -648,6 +647,7 @@ class GDSPhoneAPI:
 
         Returns:
             True if account is currently locked
+
         """
         # Check if lock has expired
         if self._account_locked and time.time() >= self._account_lock_expire_time:
@@ -662,6 +662,7 @@ class GDSPhoneAPI:
 
         Returns:
             Status response dictionary
+
         """
         headers = self._build_headers()
         response = self._make_request(
@@ -679,6 +680,7 @@ class GDSPhoneAPI:
 
         Returns:
             Reboot response dictionary
+
         """
         params = {"request": "REBOOT"}
         response = self._make_request(
@@ -695,6 +697,7 @@ class GDSPhoneAPI:
 
         Raises:
             GrandstreamRTSPError: If credentials are missing or port unreachable
+
         """
         if not self.rtsp_username or not self.rtsp_password:
             raise GrandstreamRTSPError(
@@ -709,8 +712,7 @@ class GDSPhoneAPI:
                 sock.settimeout(GDS_TIMEOUT_SOCKET_CHECK)
                 sock.connect((self.host, rtsp_port))
         except OSError:
-            _LOGGER.warning(
-                "RTSP port %s on %s is unreachable. Ensure RTSP is enabled.",
+            _LOGGER.warning("RTSP port %s on %s is unreachable. Ensure RTSP is enabled",
                 rtsp_port,
                 self.host,
             )
@@ -748,6 +750,7 @@ class GDSPhoneAPI:
 
         Returns:
             Registration response dictionary
+
         """
         params = {"cmd": "set", "type": "gns_ha_register"}
 
@@ -774,4 +777,3 @@ class GDSPhoneAPI:
 
         _LOGGER.info("HA URL registration response: %s", response)
         return response
-

@@ -1,18 +1,101 @@
 """Utility functions and classes for Grandstream Home integration."""
+
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import ipaddress
 import logging
 from typing import TYPE_CHECKING
 
+from cryptography.fernet import Fernet, InvalidToken
+
 from homeassistant.helpers import device_registry as dr
+
+from .const import DEFAULT_PORT, DEVICE_TYPE_GDS, DEVICE_TYPE_GNS_NAS, DOMAIN
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-from .const import DEFAULT_PORT, DEVICE_TYPE_GDS, DEVICE_TYPE_GNS_NAS, DOMAIN
-
 _LOGGER = logging.getLogger(__name__)
+
+
+def _get_encryption_key(unique_id: str) -> bytes:
+    """Generate a consistent encryption key based on unique_id."""
+    # Use unique_id + a fixed salt to generate key
+    salt = hashlib.sha256(f"grandstream_home_{unique_id}_salt_2026".encode()).digest()
+    key_material = (unique_id + "grandstream_home").encode() + salt
+    key = hashlib.sha256(key_material).digest()
+    return base64.urlsafe_b64encode(key)
+
+
+def encrypt_password(password: str, unique_id: str) -> str:
+    """Encrypt password using Fernet encryption.
+
+    Args:
+        password: Plain text password
+        unique_id: Device unique ID for key generation
+
+    Returns:
+        str: Encrypted password (base64 encoded)
+    """
+    if not password:
+        return ""
+
+    try:
+        key = _get_encryption_key(unique_id)
+        f = Fernet(key)
+        encrypted = f.encrypt(password.encode())
+        return base64.b64encode(encrypted).decode()
+    except (ValueError, TypeError, OSError) as e:
+        _LOGGER.warning("Failed to encrypt password: %s", e)
+        return password  # Fallback to plaintext
+
+
+def decrypt_password(encrypted_password: str, unique_id: str) -> str:
+    """Decrypt password using Fernet encryption.
+
+    Args:
+        encrypted_password: Encrypted password (base64 encoded)
+        unique_id: Device unique ID for key generation
+
+    Returns:
+        str: Plain text password
+    """
+    if not encrypted_password:
+        return ""
+
+    # Check if it looks like encrypted data (base64 + reasonable length)
+    if not is_encrypted_password(encrypted_password):
+        return encrypted_password  # Assume plaintext for backward compatibility
+
+    try:
+        key = _get_encryption_key(unique_id)
+        f = Fernet(key)
+        encrypted_bytes = base64.b64decode(encrypted_password.encode())
+        decrypted = f.decrypt(encrypted_bytes)
+        return decrypted.decode()
+    except (ValueError, TypeError, OSError, binascii.Error, InvalidToken) as e:
+        _LOGGER.warning("Failed to decrypt password, using as plaintext: %s", e)
+        return encrypted_password  # Fallback to plaintext
+
+
+def is_encrypted_password(password: str) -> bool:
+    """Check if password appears to be encrypted.
+
+    Args:
+        password: Password string to check
+
+    Returns:
+        bool: True if password appears encrypted
+    """
+    try:
+        # Try to decode as base64, if successful it might be encrypted
+        base64.b64decode(password.encode())
+        return len(password) > 50  # Encrypted passwords are typically longer
+    except (ValueError, TypeError, binascii.Error):
+        return False
 
 
 def get_device_type(
@@ -27,6 +110,7 @@ def get_device_type(
 
     Returns:
         Device type string (GDS/GNS) or None if not determinable
+
     """
     if device is None:
         return None
@@ -84,6 +168,7 @@ class DeviceMatcher:
 
         Args:
             hass: Home Assistant instance
+
         """
         self.hass = hass
         self._device_registry = dr.async_get(hass)
@@ -96,6 +181,7 @@ class DeviceMatcher:
 
         Returns:
             Device entry or None if not found
+
         """
         return self._device_registry.async_get(device_id)
 
@@ -104,6 +190,7 @@ class DeviceMatcher:
 
         Returns:
             List of all devices belonging to this integration
+
         """
         return [
             dev
@@ -124,6 +211,7 @@ class DeviceMatcher:
 
         Returns:
             Matching device or None
+
         """
         devices = self.get_all_grandstream_devices()
 
@@ -179,6 +267,7 @@ class DeviceMatcher:
 
         Returns:
             Best matching device or None
+
         """
         # Try to get device by ID first
         if device_id:
@@ -219,6 +308,7 @@ class DeviceMatcher:
 
         Returns:
             True if device is valid, False otherwise
+
         """
         if device is None:
             return False
@@ -234,6 +324,7 @@ class DeviceTypeResolver:
 
         Args:
             hass: Home Assistant instance
+
         """
         self.hass = hass
         self._device_registry = dr.async_get(hass)
@@ -251,6 +342,7 @@ class DeviceTypeResolver:
 
         Returns:
             Device type or None
+
         """
         device = self._device_registry.async_get(device_id)
 
@@ -292,6 +384,7 @@ class DeviceTypeResolver:
 
         Returns:
             True if device is GDS type, False otherwise
+
         """
         return (
             self.get_device_type_for_automation(device_id, "check") == DEVICE_TYPE_GDS
@@ -305,6 +398,7 @@ class DeviceTypeResolver:
 
         Returns:
             True if device is GNS type, False otherwise
+
         """
         return (
             self.get_device_type_for_automation(device_id, "check")
@@ -338,6 +432,7 @@ def generate_unique_id(
 
     Returns:
         str: Formatted unique ID
+
     """
     # Clean device name, remove special characters
     if device_name and device_name.strip():
@@ -362,3 +457,5 @@ __all__ = [
     "generate_unique_id",
     "get_device_type",
 ]
+# Add password encryption functions to exports
+__all__ += ["decrypt_password", "encrypt_password", "is_encrypted_password"]

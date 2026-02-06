@@ -11,6 +11,8 @@
           "device_type": "设备类型"
         },
         "data_description": {
+          "host": "设备的IP地址或主机名",
+          "name": "设备的友好名称",
           "device_type": "选择设备类型: GDS (门禁设备) 或 GNS (网络存储)"
         }
       },
@@ -28,6 +30,7 @@
         "data_description": {
           "username": "设备登录用户名",
           "password": "设备管理员密码",
+          "port": "设备通信端口号",
           "rtsp_enable": "是否启用RTSP视频流",
           "rtsp_username": "RTSP认证用户名 (可选)",
           "rtsp_password": "RTSP认证密码 (可选)"
@@ -50,17 +53,34 @@
   },
   "device_automation": {
     "trigger_type": {
-      "personnel_intrusion": "人员滞留/入侵报警",
+      "personnel_intrusion": "人员逗留/闯入报警",
       "hostage": "胁迫报警",
       "tamper": "防拆报警",
-      "keypad_error": "键盘输入错误报警",
-      "non_scheduled_access": "非计划访问报警",
-      "unauthorized_rfid": "未授权RFID卡访问报警",
+      "keypad_error": "远程开门密码错误报警",
+      "non_scheduled_access": "超出时间表访问报警",
+      "unauthorized_rfid": "非授权RFID卡/二维码访问报警",
       "abnormal_sound": "异常声音报警",
       "high_temperature": "高温报警",
-      "di_1": "DI 1",
-      "di_2": "DI 2",
-      "di_3": "DI 3",
+      "di_1": "数字输入1报警",
+      "di_2": "数字输入2报警",
+      "door_opened_any": "门被打开（任意方式）",
+      "door_opened_rfid": "刷卡开门",
+      "door_opened_sip": "SIP呼叫开门",
+      "door_opened_common_password": "统一密码开门",
+      "door_opened_personal_password": "个人密码开门",
+      "door_opened_card_password": "卡+密码开门",
+      "door_opened_temp_password": "临时密码开门",
+      "door_opened_forced": "强制开门",
+      "door_opened_remote": "远程开门",
+      "door_opened_http": "HTTP开门",
+      "door_opened_qrcode": "二维码开门",
+      "door_opened_ble": "蓝牙开门",
+      "door_opened_nfc": "NFC开门",
+      "door_opened_pin": "PIN码开门",
+      "door_opened_guest_qrcode": "访客二维码开门",
+      "door_opened_touch_pass": "Touch Pass开门",
+      "phone_busy": "电话忙线",
+      "phone_ringing": "电话响铃",
       "disk_error": "磁盘错误/故障",
       "disk_offline": "磁盘离线",
       "pool_degraded": "存储池降级",

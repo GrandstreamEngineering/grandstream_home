@@ -11,6 +11,8 @@
           "device_type": "Device Type"
         },
         "data_description": {
+          "host": "IP address or hostname of the device",
+          "name": "Friendly name for the device",
           "device_type": "Select device type: GDS (Access Control Device) or GNS (Network Storage)"
         }
       },
@@ -28,6 +30,7 @@
         "data_description": {
           "username": "Device Login Username",
           "password": "Device Administrator Password",
+          "port": "Port number for device communication",
           "rtsp_enable": "Enable RTSP video stream",
           "rtsp_username": "RTSP Authentication Username (optional)",
           "rtsp_password": "RTSP Authentication Password (optional)"
@@ -45,22 +48,40 @@
       "missing_rtsp_credentials": "When enabling RTSP, a username and password are required."
     },
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Device is already configured",
+      "missing_data": "Missing required data"
     }
   },
   "device_automation": {
     "trigger_type": {
-      "personnel_intrusion": "Personnel Loitering/Intrusion Alarm",
+      "personnel_intrusion": "Intrusion/Loitering Alarm",
       "hostage": "Duress Alarm",
       "tamper": "Tamper Alarm",
-      "keypad_error": "Keypad Input Error Alarm",
-      "non_scheduled_access": "Unscheduled Access Alarm",
-      "unauthorized_rfid": "Unauthorized RFID Card Access Alarm",
+      "keypad_error": "Remote Unlock Wrong Password Alarm",
+      "non_scheduled_access": "Exceeded Access Time Limit Alarm",
+      "unauthorized_rfid": "Unauthorized RFID Card/QR Code Access Alarm",
       "abnormal_sound": "Abnormal Sound Alarm",
       "high_temperature": "High Temperature Alarm",
-      "di_1": "DI 1",
-      "di_2": "DI 2",
-      "di_3": "DI 3",
+      "di_1": "Digital Input Alarm 1",
+      "di_2": "Digital Input Alarm 2",
+      "door_opened_any": "Door Opened (Any Method)",
+      "door_opened_rfid": "Door Opened by RFID Card",
+      "door_opened_sip": "Door Opened by SIP Call",
+      "door_opened_common_password": "Door Opened by Common Password",
+      "door_opened_personal_password": "Door Opened by Personal Password",
+      "door_opened_card_password": "Door Opened by Card and Password",
+      "door_opened_temp_password": "Door Opened by Temporary Password",
+      "door_opened_forced": "Door Opened by Force",
+      "door_opened_remote": "Door Opened Remotely",
+      "door_opened_http": "Door Opened by HTTP",
+      "door_opened_qrcode": "Door Opened by QR Code",
+      "door_opened_ble": "Door Opened by Bluetooth",
+      "door_opened_nfc": "Door Opened by NFC",
+      "door_opened_pin": "Door Opened by PIN Code",
+      "door_opened_guest_qrcode": "Door Opened by Guest QR Code",
+      "door_opened_touch_pass": "Door Opened by Touch Pass",
+      "phone_busy": "Phone Status Busy",
+      "phone_ringing": "Phone Status Ringing",
       "disk_error": "Disk Error/Failure",
       "disk_offline": "Disk Offline",
       "pool_degraded": "Storage Pool Degraded",

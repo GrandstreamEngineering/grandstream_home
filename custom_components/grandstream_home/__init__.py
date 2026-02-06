@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.device_registry import async_get as async_get_device_registry
+from homeassistant.helpers import device_registry as dr
 
 from .api.gds_api import GDSPhoneAPI
 from .api.gns_api import GNSNasAPI
@@ -17,6 +17,9 @@ from .const import (
     CONF_COMMAND_WEBHOOK_ID,
     CONF_DEVICE_TYPE,
     CONF_PASSWORD,
+    CONF_PORT,
+    CONF_RTSP_PASSWORD,
+    CONF_RTSP_USERNAME,
     CONF_STATUS_WEBHOOK_ID,
     CONF_USE_HTTPS,
     CONF_USERNAME,
@@ -31,11 +34,11 @@ from .coordinator import GrandstreamCoordinator
 from .device import GDSDevice, GNSNASDevice
 from .receiver import GsWebhookCommandReceiver, GsWebhookStatusReceiver
 from .services import async_setup_services
-from .utils import generate_unique_id
+from .utils import decrypt_password, generate_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.SENSOR, Platform.BUTTON, Platform.CAMERA]
+PLATFORMS = [Platform.BUTTON, Platform.CAMERA, Platform.SENSOR]
 
 # Device type mapping to API classes
 DEVICE_API_MAPPING = {
@@ -76,7 +79,7 @@ def _try_get_local_ip_url(hass: HomeAssistant) -> str:
 
         # Use configured URL scheme if available, default to http
         scheme = _get_url_scheme(hass)
-        port = hass.config.api.port or DEFAULT_PORT
+        port = hass.config.api.port if hass.config.api else DEFAULT_PORT
 
         ha_url = f"{scheme}://{ha_ip}:{port}"
         _LOGGER.info("Using local network IP: %s", ha_url)
@@ -90,7 +93,7 @@ def _get_fallback_ha_url(hass: HomeAssistant, entry: ConfigEntry) -> str:
     """Get fallback Home Assistant URL using device network IP or default configuration."""
     # Use configured URL scheme if available, default to http
     scheme = _get_url_scheme(hass)
-    port = hass.config.api.port or DEFAULT_PORT
+    port = hass.config.api.port if hass.config.api else DEFAULT_PORT
     device_ip = entry.data.get(CONF_HOST)
 
     if device_ip:
@@ -104,7 +107,7 @@ def _get_fallback_ha_url(hass: HomeAssistant, entry: ConfigEntry) -> str:
             return ha_url
 
     # Default fallback
-    ha_url = f"{scheme}://{hass.config.api.host or 'localhost'}:{port}"
+    ha_url = f"{scheme}://{hass.config.api.host if hass.config.api and hass.config.api.host else 'localhost'}:{port}"
     _LOGGER.warning("Using default API config IP: %s", ha_url)
     return ha_url
 
@@ -122,7 +125,7 @@ def _get_url_scheme(hass: HomeAssistant) -> str:
 
     # Default to http for local development, https for production
     # This is a simple heuristic - in production, Home Assistant typically uses https
-    return "https" if hass.config.api.port == 443 else "http"
+    return "https" if hass.config.api and hass.config.api.port == 443 else "http"
 
 
 async def _setup_api(hass: HomeAssistant, entry: ConfigEntry) -> Any:
@@ -135,12 +138,9 @@ async def _setup_api(hass: HomeAssistant, entry: ConfigEntry) -> Any:
     # Create API instance based on device type
     api = _create_api_instance(api_class, device_type, entry)
 
-    # Store API instance
+    # Initialize global API lock if not exists
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = {"api": api}
-
-    # Initialize API lock if not exists
-    if not hasattr(hass.data[DOMAIN], "api_lock"):
+    if "api_lock" not in hass.data[DOMAIN]:
         hass.data[DOMAIN]["api_lock"] = asyncio.Lock()
 
     # Attempt login with error handling
@@ -151,17 +151,35 @@ async def _setup_api(hass: HomeAssistant, entry: ConfigEntry) -> Any:
 
 def _create_api_instance(api_class, device_type: str, entry: ConfigEntry) -> Any:
     """Create API instance based on device type."""
-    if device_type == DEVICE_TYPE_GDS:
-        return api_class(entry=entry)
-
-    # For GNS NAS and other types, use direct parameters
     host = entry.data.get(CONF_HOST, "")
     username = entry.data.get(CONF_USERNAME, "")
-    password = entry.data.get(CONF_PASSWORD, "")
+    encrypted_password = entry.data.get(CONF_PASSWORD, "")
+    password = decrypt_password(encrypted_password, entry.unique_id or "default")
+    use_https = entry.data.get(CONF_USE_HTTPS, False)
+    if device_type == DEVICE_TYPE_GDS:
+        port = entry.data.get(CONF_PORT, DEFAULT_PORT)
+
+        rtsp_username = entry.data.get(CONF_RTSP_USERNAME)
+        encrypted_rtsp_password = entry.data.get(CONF_RTSP_PASSWORD)
+        rtsp_password = None
+        if encrypted_rtsp_password:
+            rtsp_password = decrypt_password(encrypted_rtsp_password, entry.unique_id or "default")
+            _LOGGER.debug("RTSP password decrypted for device %s", entry.unique_id)
+
+        return api_class(
+            host=host,
+            username=username,
+            password=password,
+            use_https=use_https,
+            port=port,
+            rtsp_username=rtsp_username,
+            rtsp_password=rtsp_password
+        )
 
     if device_type == DEVICE_TYPE_GNS_NAS:
-        use_https = entry.data.get(CONF_USE_HTTPS, True)
-        port = entry.data.get("port", DEFAULT_HTTPS_PORT if use_https else DEFAULT_HTTP_PORT)
+        port = entry.data.get(
+            CONF_PORT, DEFAULT_HTTPS_PORT if use_https else DEFAULT_HTTP_PORT
+        )
         return api_class(host, username, password, port=port, use_https=use_https)
 
     # Default fallback
@@ -199,7 +217,7 @@ async def _setup_device(
     }
 
     # Get API instance for MAC address retrieval
-    api = hass.data[DOMAIN][entry.entry_id].get("api")
+    api = entry.runtime_data.get("api")
 
     # Extract MAC address from API if available
     mac_address = _extract_mac_address(api)
@@ -247,7 +265,7 @@ async def _handle_existing_device(
     hass: HomeAssistant, unique_id: str, name: str, device_type: str
 ) -> None:
     """Check and update existing device if found."""
-    device_registry = async_get_device_registry(hass)
+    device_registry = dr.async_get(hass)
 
     for dev in device_registry.devices.values():
         for identifier in dev.identifiers:
@@ -260,7 +278,6 @@ async def _handle_existing_device(
                     name=name,
                     manufacturer="Grandstream",
                     model=device_type,
-                    suggested_area="Entry",
                 )
                 return
 
@@ -294,6 +311,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # 1. Set up API
         api = await _setup_api_with_error_handling(hass, entry, device_type)
 
+        # Store API in runtime_data (required for Bronze quality scale)
+        entry.runtime_data = {"api": api}
+
         # 2. Create device instance
         device = await _setup_device(hass, entry, device_type)
         _LOGGER.debug(
@@ -302,26 +322,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             device.unique_id,
         )
 
-        # 3. Create coordinator
+        # 3. Initialize data storage
+        hass.data.setdefault(DOMAIN, {})
+        hass.data[DOMAIN][entry.entry_id] = {}
+
+        # 4. Create coordinator
         coordinator = await _setup_coordinator(hass, device_type, entry)
 
-        # 4. Update stored data
+        # 5. Update stored data
         await _update_stored_data(hass, entry, coordinator, device, device_type)
 
-        # 5. Set up platforms, services, and data receivers
+        # 6. Set up platforms, services, and data receivers
         await _setup_platforms(hass, entry)
         await async_setup_services(hass)
         await _set_data_receiver(hass, coordinator, entry)
 
-        # 6. Set up device configuration
+        # 7. Set up device configuration
         ha_url = await _get_ha_url(hass, entry)
         if api:
             api.ha_ip_address = ha_url
 
-        # 7. Configure GDS devices
+        # 8. Configure GDS devices
         await _configure_gds_device(hass, api, device_type, entry, ha_url)
 
-        # 8. Update device information from API (for GNS devices)
+        # 9. Update device information from API (for GNS devices)
         await _update_device_info_from_api(hass, api, device_type, device)
 
         _LOGGER.info("Integration initialization completed")
@@ -341,9 +365,8 @@ async def _setup_api_with_error_handling(
     except (ImportError, AttributeError, ValueError) as e:
         _LOGGER.exception("Error during API setup")
         raise ConfigEntryNotReady(f"API setup failed: {e}") from e
-    else:
-        _LOGGER.debug("API setup successful, device type: %s", device_type)
-        return api
+    _LOGGER.debug("API setup successful, device type: %s", device_type)
+    return api
 
 
 async def _setup_coordinator(
@@ -367,8 +390,12 @@ async def _update_stored_data(
     """Update stored data in hass.data."""
     _LOGGER.debug("Starting data storage update")
     try:
+        # Get API from runtime_data
+        api = entry.runtime_data.get("api") if entry.runtime_data else None
+
         hass.data[DOMAIN][entry.entry_id].update(
             {
+                "api": api,
                 "coordinator": coordinator,
                 "device": device,
                 "device_type": device_type,
@@ -404,7 +431,7 @@ async def _configure_gds_device(
 
 def _build_webhook_config(
     hass: HomeAssistant, entry: ConfigEntry, ha_url: str
-) -> dict[str, str]:
+) -> dict[str, str | dict[str, str]]:
     """Build webhook configuration dictionary."""
     status_webhook_id = entry.data.get(CONF_STATUS_WEBHOOK_ID)
     command_webhook_id = entry.data.get(CONF_COMMAND_WEBHOOK_ID)
@@ -449,7 +476,10 @@ async def _ensure_device_info(hass: HomeAssistant, api: Any) -> None:
 
 
 async def _send_gds_device_config(
-    hass: HomeAssistant, api: Any, webhook_config: dict[str, str], entry: ConfigEntry
+    hass: HomeAssistant,
+    api: Any,
+    webhook_config: dict[str, str | dict[str, str]],
+    entry: ConfigEntry,
 ) -> None:
     """Send configuration to GDS device."""
     async with hass.data[DOMAIN]["api_lock"]:
@@ -503,7 +533,7 @@ def _update_device_name(device: Any, system_info: dict[str, str]) -> None:
     current_name = device.name
 
     # If device name doesn't contain model info, try to add model
-    if product_name and not any(model in current_name for model in ["GNS", "GDS"]):
+    if product_name and not any(model in current_name for model in ("GNS", "GDS")):
         # Construct new device name including model info
         new_name = f"{product_name.upper()}"
         _LOGGER.info(

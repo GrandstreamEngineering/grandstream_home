@@ -1,4 +1,5 @@
 """Data update coordinator for Grandstream devices."""
+
 from datetime import timedelta
 import json
 import logging
@@ -20,6 +21,8 @@ _LOGGER = logging.getLogger(__name__)
 class GrandstreamCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from Grandstream device."""
 
+    last_update_method: str | None = None
+
     def __init__(self, hass: HomeAssistant, device_type: str, entry_id: str) -> None:
         """Initialize the coordinator.
 
@@ -27,6 +30,7 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
             hass: Home Assistant instance
             device_type: Type of the device
             entry_id: Configuration entry ID
+
         """
         super().__init__(
             hass,
@@ -36,21 +40,25 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
         )
         self.device_type = device_type
         self.entry_id = entry_id
-        self.last_update_method = None
         self._error_count = 0
         self._max_errors = COORDINATOR_ERROR_THRESHOLD
 
-    def _process_status(self, status_data: str) -> str:
+    def _process_status(self, status_data: str | dict) -> str:
         """Process status data and ensure it doesn't exceed maximum length.
 
         Args:
-            status_data: Raw status data
+            status_data: Raw status data (string or dict)
 
         Returns:
             str: Processed status string
+
         """
         if not status_data:
             return "unknown"
+
+        # If it's a dict, extract status field
+        if isinstance(status_data, dict):
+            status_data = status_data.get("status", str(status_data))
 
         # If it's a JSON string, try to parse it
         if isinstance(status_data, str) and status_data.startswith("{"):
@@ -78,9 +86,27 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
 
         Returns:
             dict: Updated device data
+
         """
         try:
-            api = self.hass.data[DOMAIN][self.entry_id].get("api")
+            # Try to get API from runtime_data first
+            config_entry = None
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.entry_id == self.entry_id:
+                    config_entry = entry
+                    break
+
+            api = None
+            if (
+                config_entry
+                and hasattr(config_entry, "runtime_data")
+                and config_entry.runtime_data
+            ):
+                api = config_entry.runtime_data.get("api")
+
+            # Fallback to hass.data if runtime_data not available
+            if not api:
+                api = self.hass.data[DOMAIN][self.entry_id].get("api")
             if not api:
                 self._error_count += 1
                 if self._error_count >= self._max_errors:
@@ -145,6 +171,7 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
 
         Args:
             data: Pushed data from device
+
         """
         try:
             _LOGGER.debug("Received push data: %s", data)
@@ -177,10 +204,11 @@ class GrandstreamCoordinator(DataUpdateCoordinator):
             raise
 
     def handle_push_data(self, data: dict[str, Any]) -> None:
-        """Synchronous version of push data handling method.
+        """Handle push data synchronously.
 
         Args:
             data: Pushed data from device
+
         """
         try:
             _LOGGER.debug("Processing sync push data: %s", data)

@@ -1,4 +1,7 @@
 """Config flow for Grandstream Home."""
+
+from __future__ import annotations
+
 import logging
 import secrets
 from typing import Any
@@ -6,9 +9,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
-from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
     CONF_COMMAND_WEBHOOK_ID,
@@ -29,7 +30,7 @@ from .const import (
     DEVICE_TYPE_GNS_NAS,
     DOMAIN,
 )
-from .utils import generate_unique_id
+from .utils import encrypt_password, generate_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             FlowResult: Next step or form to show
+
         """
         errors = {}
 
@@ -106,8 +108,8 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_zeroconf(
-        self, discovery_info: ZeroconfServiceInfo
-    ) -> ConfigFlowResult:
+        self, discovery_info: Any
+    ) -> config_entries.ConfigFlowResult:
         """Handle zeroconf discovery callback."""
         self._host = discovery_info.host
         txt_properties = discovery_info.properties or {}
@@ -124,7 +126,9 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Extract device information from TXT records or service name
         if is_device_info_service and has_valid_txt_properties:
-            result = await self._process_device_info_service(discovery_info, txt_properties)
+            result = await self._process_device_info_service(
+                discovery_info, txt_properties
+            )
         else:
             result = await self._process_standard_service(discovery_info)
 
@@ -145,7 +149,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Use global function to generate unique ID
         unique_id = generate_unique_id(
-            self._name or "", self._device_type, self._host or "", self._port
+            self._name or "", self._device_type or "", self._host or "", self._port
         )
 
         # Check if already configured
@@ -162,12 +166,16 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             bool: True if it's a Grandstream device
+
         """
-        return any(prefix in str(product_name).upper() for prefix in [DEVICE_TYPE_GNS_NAS, DEVICE_TYPE_GDS])
+        return any(
+            prefix in str(product_name).upper()
+            for prefix in (DEVICE_TYPE_GNS_NAS, DEVICE_TYPE_GDS)
+        )
 
     async def _process_device_info_service(
-        self, discovery_info: ZeroconfServiceInfo, txt_properties: dict[str, Any]
-    ) -> ConfigFlowResult | None:
+        self, discovery_info: Any, txt_properties: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult | None:
         """Process device info service discovery.
 
         Args:
@@ -176,6 +184,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             ConfigFlowResult if device should be ignored, None otherwise
+
         """
         _LOGGER.debug("txt_properties:%s", txt_properties)
 
@@ -214,8 +223,8 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return None
 
     async def _process_standard_service(
-        self, discovery_info: ZeroconfServiceInfo
-    ) -> ConfigFlowResult | None:
+        self, discovery_info: Any
+    ) -> config_entries.ConfigFlowResult | None:
         """Process standard service discovery.
 
         Args:
@@ -223,6 +232,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             ConfigFlowResult if device should be ignored, None otherwise
+
         """
         # For HTTP/HTTPS services or services without valid TXT records
         self._name = (
@@ -255,7 +265,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_auth(
         self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Handle authentication step.
 
         Args:
@@ -263,9 +273,10 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             FlowResult: Next step or form to show
+
         """
         errors = {}
-        _LOGGER.info("async_step_auth %s", user_input)
+        _LOGGER.info("Async_step_auth %s", user_input)
 
         # Determine if device is GNS type
         is_gns_device = self._device_type == DEVICE_TYPE_GNS_NAS
@@ -290,7 +301,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             self._auth_info = {
                 CONF_USERNAME: user_input.get(CONF_USERNAME, default_username),
-                CONF_PASSWORD: user_input[CONF_PASSWORD],
+                CONF_PASSWORD: encrypt_password(user_input[CONF_PASSWORD], self.unique_id or "default"),
                 CONF_PORT: user_input.get(CONF_PORT, DEFAULT_PORT),
                 CONF_RTSP_ENABLE: rtsp_enabled,
             }
@@ -302,7 +313,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 if rtsp_username and rtsp_password:
                     self._auth_info[CONF_RTSP_USERNAME] = rtsp_username
-                    self._auth_info[CONF_RTSP_PASSWORD] = rtsp_password
+                    self._auth_info[CONF_RTSP_PASSWORD] = encrypt_password(rtsp_password, self.unique_id or "default")
                     return await self.async_step_webhook_setup()
 
                 # RTSP enabled but missing credentials
@@ -350,8 +361,9 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             dict: Form schema dictionary
+
         """
-        schema_dict = {}
+        schema_dict: dict[Any, type] = {}
 
         # GNS devices need username input, GDS uses fixed username
         if is_gns_device:
@@ -399,6 +411,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             str: Device type constant (DEVICE_TYPE_GNS_NAS or DEVICE_TYPE_GDS)
+
         """
         product_name = txt_properties.get("product_name", "").strip().upper()
 
@@ -425,6 +438,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Args:
             txt_properties: TXT record properties
             is_https_default: Whether to default to HTTPS if no port found
+
         """
         https_port = txt_properties.get("https_port")
         http_port = txt_properties.get("http_port")
@@ -460,6 +474,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Args:
             txt_properties: TXT record properties
+
         """
         info_fields = {
             "hostname": "Device hostname",
@@ -474,8 +489,8 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.debug("%s: %s", label, value)
 
     async def async_step_webhook_setup(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+        self, _user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
         """Generate Webhook ID and set up Webhook configuration.
 
         Args:
@@ -483,6 +498,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             FlowResult: Next step or form to show
+
         """
         # Generate unique Webhook IDs
         status_webhook_id = secrets.token_hex(32)
@@ -493,8 +509,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_COMMAND_WEBHOOK_ID: command_webhook_id,
         }
 
-        _LOGGER.info(
-            "Generated Webhook IDs - Status: %s..., Command: %s...",
+        _LOGGER.info("Generated Webhook IDs - Status: %s, Command: %s",
             status_webhook_id[:8],
             command_webhook_id[:8],
         )
@@ -503,7 +518,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Handle confirmation of adding the device.
 
         Args:
@@ -511,6 +526,7 @@ class GrandstreamConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns:
             FlowResult: Configuration entry creation result
+
         """
         _LOGGER.info("Confirming device addition: %s", self._name)
         if user_input is None:

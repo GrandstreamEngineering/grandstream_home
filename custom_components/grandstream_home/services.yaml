@@ -1,46 +1,30 @@
 reboot_device:
-  name: Reboot Device
-  description: Reboot the device.
   fields:
     device_id:
-      name: Device
-      description: The device to reboot.
       required: true
       selector:
         device:
           integration: grandstream_home
 
 sleep_device:
-  name: Sleep Device
-  description: Put the NAS device into sleep mode.
   fields:
     device_id:
-      name: Device
-      description: The device to put to sleep.
       required: true
       selector:
         device:
           integration: grandstream_home
 
 wake_device:
-  name: Wake Device
-  description: Wake up the NAS device from sleep mode.
   fields:
     device_id:
-      name: Device
-      description: The device to wake up.
       required: true
       selector:
         device:
           integration: grandstream_home
 
 shutdown_device:
-  name: Shutdown Device
-  description: Shut down the NAS device.
   fields:
     device_id:
-      name: Device
-      description: The device to shut down.
       required: true
       selector:
         device:

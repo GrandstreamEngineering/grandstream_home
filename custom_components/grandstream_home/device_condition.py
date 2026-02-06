@@ -1,6 +1,8 @@
 """Provides device conditions for Grandstream Home."""
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
@@ -54,11 +56,12 @@ CONDITION_SCHEMA = vol.Schema(
 class DeviceConditionProvider:
     """Provider for device conditions based on device type."""
 
-    def __init__(self, hass: HomeAssistant):
+    def __init__(self, hass: HomeAssistant) -> None:
         """Initialize device condition provider.
 
         Args:
             hass: Home Assistant instance.
+
         """
         self.hass = hass
         self.registry = er.async_get(hass)
@@ -129,12 +132,12 @@ class DeviceConditionProvider:
 
         # Create conditions using representative entities
         condition_configs = {
-            "cpu_usage_above": {"above": 80},
-            "memory_usage_above": {"above": 80},
-            "cpu_temperature_above": {"above": 70},
-            "system_temperature_above": {"above": 60},
-            "disk_temperature_above": {"above": 50},
-            "pool_usage_above": {"above": 90},
+            "cpu_usage_above": {"above": "80"},
+            "memory_usage_above": {"above": "80"},
+            "cpu_temperature_above": {"above": "70"},
+            "system_temperature_above": {"above": "60"},
+            "disk_temperature_above": {"above": "50"},
+            "pool_usage_above": {"above": "90"},
             "fan_abnormal": {},
             "disk_abnormal": {},
             "pool_abnormal": {},
@@ -165,7 +168,7 @@ class DeviceConditionProvider:
         representative_entities = PatternMatcher.find_representative_entities(entities)
 
         # Create conditions using representative entities
-        condition_configs = {"phone_status_is": {}}
+        condition_configs: dict[str, Any] = {"phone_status_is": {}}
 
         for condition_type, config in condition_configs.items():
             entity = representative_entities.get(condition_type)
@@ -193,7 +196,8 @@ async def async_get_conditions(
 
 @callback
 def async_condition_from_config(
-    hass: HomeAssistant, config: ConfigType
+    hass: HomeAssistant,  # pylint: disable=unused-argument
+    config: ConfigType,
 ) -> condition.ConditionCheckerType:
     """Create a function to test a device condition."""
     condition_type = config[CONF_TYPE]
@@ -203,7 +207,9 @@ def async_condition_from_config(
     device_id = config.get(CONF_DEVICE_ID)
 
     @callback
-    def test_condition(hass: HomeAssistant, variables: dict[str, Any]) -> bool:
+    def test_condition(
+        hass: HomeAssistant, variables: Mapping[str, Any] | None
+    ) -> bool:  # pylint: disable=unused-argument
         """Test if condition is met."""
         # Use the initial entity_id as default
         entity_id = initial_entity_id
@@ -300,9 +306,11 @@ async def async_get_condition_capabilities(
                     {
                         vol.Required(
                             CONF_ABOVE,
-                            default=60
-                            if condition_type == "system_temperature_above"
-                            else 70,
+                            default=(
+                                60
+                                if condition_type == "system_temperature_above"
+                                else 70
+                            ),
                         ): vol.All(vol.Coerce(float), vol.Range(min=0, max=100))
                     }
                 )
@@ -317,22 +325,22 @@ async def async_get_condition_capabilities(
                 ): vol.All(vol.Coerce(float), vol.Range(min=0, max=100))
             }
 
-            # Add index field if multiple entities exist
+            # Add index field only if multiple entities exist
             if max_index > 1:
-                schema_fields[vol.Optional(CONF_INDEX, default=1)] = vol.All(
+                schema_fields[vol.Required(CONF_INDEX, default=1)] = vol.All(
                     vol.Coerce(int), vol.Range(min=1, max=max_index)
                 )
 
             return {"extra_fields": vol.Schema(schema_fields)}
 
-    # Status-based conditions that only need index if multiple entities exist
+    # Status-based conditions that need index only when multiple entities exist
     if condition_type in ["fan_abnormal", "disk_abnormal", "pool_abnormal"]:
         if max_index > 1:
-            # Only show index selector if there are multiple entities
+            # Show index selector as required field when multiple entities exist
             return {
                 "extra_fields": vol.Schema(
                     {
-                        vol.Optional(CONF_INDEX, default=1): vol.All(
+                        vol.Required(CONF_INDEX, default=1): vol.All(
                             vol.Coerce(int), vol.Range(min=1, max=max_index)
                         )
                     }

@@ -12,8 +12,6 @@ from homeassistant.components import webhook
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN
-
 _LOGGER = logging.getLogger(__name__)
 
 __all__ = ["GsWebhookCommandReceiver", "GsWebhookStatusReceiver"]
@@ -42,6 +40,7 @@ def normalize_status(status: Any) -> str:
 
     Returns:
         str: Normalized status string
+
     """
     if not status:
         return "unknown"
@@ -63,6 +62,7 @@ async def _parse_request_data(request: web.Request) -> dict[str, Any]:
 
     Returns:
         dict: Parsed request data
+
     """
     try:
         if request.headers.get("Content-Type", "").startswith("application/json"):
@@ -84,7 +84,7 @@ async def _parse_request_data(request: web.Request) -> dict[str, Any]:
     except json.JSONDecodeError as e:
         _LOGGER.warning("JSON parsing error: %s", e)
         return {}
-    except (ValueError, KeyError, json.JSONDecodeError, RequestException) as e:
+    except (ValueError, KeyError, RequestException) as e:
         _LOGGER.error("Error parsing request data: %s", e)
         return {}
 
@@ -92,7 +92,7 @@ async def _parse_request_data(request: web.Request) -> dict[str, Any]:
 async def _handle_status_data(
     coordinator: DataUpdateCoordinator, data: dict[str, Any]
 ) -> dict[str, Any]:
-    """Common method for handling status data.
+    """Handle status data.
 
     Args:
         coordinator: Data update coordinator
@@ -100,6 +100,7 @@ async def _handle_status_data(
 
     Returns:
         dict: Response data
+
     """
     try:
         # Get device type, default to 'gds'
@@ -144,8 +145,8 @@ async def _handle_status_data(
     except (ValueError, KeyError, json.JSONDecodeError, RequestException) as e:
         _LOGGER.error("Status update error: %s", e)
         return {"success": False, "error": str(e), "code": 500}
-    else:
-        return result_success
+
+    return result_success
 
 
 async def _handle_alarm_event(hass: HomeAssistant, data: dict[str, Any]) -> None:
@@ -154,48 +155,109 @@ async def _handle_alarm_event(hass: HomeAssistant, data: dict[str, Any]) -> None
     Args:
         hass: Home Assistant instance
         data: Alarm event data
+
     """
     try:
-        event = data.get("event")
-        timestamp = data.get("timestamp")
-        info = data.get("info", "")
+        # Get event type (new format)
+        event_type = data.get("type")
 
-        # Convert timestamp to readable time
-        event_time = (
-            datetime.fromtimestamp(int(timestamp)) if timestamp else datetime.now()
-        )
+        if not event_type:
+            _LOGGER.warning("Missing 'type' in event data: %s", data)
+            return
 
-        # Get alarm type description
-        event_description = ALARM_EVENTS.get(str(event), "Unknown Alarm")
+        # Get event details
+        event_details = data.get("eventDetails", [])
+        if not event_details:
+            _LOGGER.warning("Missing 'eventDetails' in event data: %s", data)
+            return
 
-        # Prepare event data
-        event_data = {
-            "event_type": event,
-            "event_description": event_description,
-            "timestamp": timestamp,
+        # Process first event detail
+        event_detail = event_details[0]
+        event_time_ms = event_detail.get("eventTime")
+        event_code = event_detail.get("eventCode")
+        event_message = event_detail.get("eventMessage", "")
+        event_data = event_detail.get("data", {})
+
+        # Convert timestamp to readable time (milliseconds to seconds)
+        if event_time_ms:
+            event_time = datetime.fromtimestamp(int(event_time_ms) / 1000)
+        else:
+            event_time = datetime.now()
+
+        # Prepare base event data
+        base_event_data = {
+            "type": event_type,
+            "timestamp": event_time_ms,
             "datetime": event_time.isoformat(),
-            "info": info,
+            "info": event_message,
+            "event_id": event_detail.get("eventId"),
         }
 
-        # Add additional information based on different alarm types
-        if event == "6":  # Sound alarm
-            event_data["sound_type"] = "Gunshot" if info == "0" else "Unknown Sound"
-        elif event == "7":  # Temperature alarm
-            event_data["temperature"] = float(info) if info.isdigit() else None
+        # Handle different event types
+        if event_type == "access":
+            # Door access event
+            access_type = event_data.get("accessType")
+            access_user_id = event_data.get("accessUserId")
+            access_user_name = event_data.get("accessUserName")
+            relay = event_data.get("relay")
+
+            event_data_to_fire = {
+                **base_event_data,
+                "accessType": str(access_type) if access_type is not None else None,
+                "accessUserId": access_user_id,
+                "accessUserName": access_user_name,
+                "relay": relay,
+            }
+
+            _LOGGER.info(
+                "Door access event: type=%s, user=%s, accessType=%s",
+                event_type,
+                access_user_name,
+                access_type,
+            )
+
+        elif event_type == "alert":
+            # Alarm event
+            # alertType is in data.alertType, not eventCode
+            alert_type_from_data = event_data.get("alertType")
+            alert_type = str(alert_type_from_data) if alert_type_from_data is not None else str(event_code)
+
+            # Get alarm type description
+            event_description = ALARM_EVENTS.get(alert_type, "Unknown Alarm")
+
+            event_data_to_fire = {
+                **base_event_data,
+                "alertType": alert_type,
+                "event_description": event_description,
+            }
+
+            _LOGGER.info(
+                "Alarm event: type=%s, alertType=%s, description=%s",
+                event_type,
+                alert_type,
+                event_description,
+            )
+
+        else:
+            # Unknown event type
+            _LOGGER.warning("Unknown event type: %s", event_type)
+            event_data_to_fire = base_event_data
 
         # Trigger Home Assistant event
-        hass.bus.async_fire("grandstream_alarm", event_data)
+        hass.bus.async_fire("grandstream_alarm", event_data_to_fire)
 
-        _LOGGER.info("Alarm event fired: %s, Data: %s", event_description, event_data)
+        _LOGGER.debug("Event fired: %s", event_data_to_fire)
 
     except (ValueError, KeyError, json.JSONDecodeError, RequestException) as e:
         _LOGGER.error("Error handling alarm event: %s", e)
+    except Exception:
+        _LOGGER.exception("Unexpected error handling alarm event")
 
 
 async def _handle_command_data(
     hass: HomeAssistant, data: dict[str, Any]
 ) -> dict[str, Any]:
-    """Common method for handling command data.
+    """Handle command data.
 
     Args:
         hass: Home Assistant instance
@@ -203,6 +265,7 @@ async def _handle_command_data(
 
     Returns:
         dict: Response data
+
     """
     try:
         _LOGGER.info("Command received: %s", data)
@@ -216,45 +279,28 @@ async def _handle_command_data(
                 "code": 400,
             }
 
-        result_obj: dict[str, Any] | None = None
-
-        # Get action
-        action = data.get("action") or data.get("command")
-
-        if not action:
-            return {
-                "success": False,
-                "error": "No action specified in request",
-                "code": 400,
-            }
-
-        if action == "reboot_device":
-            await hass.services.async_call(DOMAIN, "reboot_device")
-            result_obj = {
-                "success": True,
-                "message": "Device reboot initiated",
-                "code": 200,
-                "data": {"action": action},
-            }
-        if action == "alarm":
+        # Check if this is a new format event (has "type" and "eventDetails")
+        event_type = data.get("type")
+        if event_type and "eventDetails" in data:
+            # This is a new format event (access or alert)
             await _handle_alarm_event(hass, data)
-            result_obj = {
+            return {
                 "success": True,
-                "message": "alarm success",
+                "message": f"Event processed: {event_type}",
                 "code": 200,
-                "data": {"action": action},
+                "data": {"type": event_type},
             }
-        if result_obj is None:
-            result_obj = {
-                "success": False,
-                "error": f"Invalid action: {action}",
-                "code": 400,
-            }
+
+        # No valid event format found
+        return {  # noqa: TRY300
+            "success": False,
+            "error": "Invalid event format: missing 'type' or 'eventDetails'",
+            "code": 400,
+        }
+
     except (ValueError, KeyError, json.JSONDecodeError, RequestException) as e:
         _LOGGER.error("Command error: %s", e)
         return {"success": False, "error": str(e), "code": 500}
-    else:
-        return result_obj
 
 
 # ----------------------------------------------------------
@@ -272,6 +318,7 @@ class GsWebhookStatusReceiver:
             hass: Home Assistant instance
             coordinator: Data update coordinator
             webhook_id: Webhook ID
+
         """
         self.hass = hass
         self.coordinator = coordinator
@@ -290,17 +337,18 @@ class GsWebhookStatusReceiver:
         _LOGGER.info("Registered status Webhook: %s", self.webhook_id)
 
     async def handle_webhook(
-        self, hass: HomeAssistant, webhook_id: str, request: web.Request
+        self, _hass: HomeAssistant, _webhook_id: str, request: web.Request
     ) -> web.Response:
         """Handle Webhook requests.
 
         Args:
-            hass: Home Assistant instance
-            webhook_id: Webhook ID
+            _hass: Home Assistant instance (unused)
+            _webhook_id: Webhook ID (unused)
             request: Web request object
 
         Returns:
             web.Response: JSON response
+
         """
         try:
             # Parse request data
@@ -339,6 +387,7 @@ class GsWebhookCommandReceiver:
         Args:
             hass: Home Assistant instance
             webhook_id: Webhook ID
+
         """
         self.hass = hass
         self.webhook_id = webhook_id
@@ -356,17 +405,18 @@ class GsWebhookCommandReceiver:
         _LOGGER.info("Registered command Webhook: %s", self.webhook_id)
 
     async def handle_webhook(
-        self, hass: HomeAssistant, webhook_id: str, request: web.Request
+        self, _hass: HomeAssistant, _webhook_id: str, request: web.Request
     ) -> web.Response:
         """Handle Webhook requests.
 
         Args:
-            hass: Home Assistant instance
-            webhook_id: Webhook ID
+            _hass: Home Assistant instance (unused)
+            _webhook_id: Webhook ID (unused)
             request: Web request object
 
         Returns:
             web.Response: JSON response
+
         """
         try:
             # Parse request data

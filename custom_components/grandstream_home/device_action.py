@@ -1,4 +1,5 @@
 """Provides device automations for Grandstream Home."""
+
 from __future__ import annotations
 
 import logging
@@ -66,6 +67,7 @@ def _build_action_dict(device_id: str, action_type: str) -> dict[str, str]:
 
     Returns:
         Action configuration dictionary
+
     """
     return {
         CONF_DOMAIN: DOMAIN,
@@ -85,6 +87,7 @@ async def async_get_actions(
 
     Returns:
         List of action configurations based on device type
+
     """
     resolver = DeviceTypeResolver(hass)
     device_type = resolver.get_device_type_for_automation(device_id, "action")
@@ -116,6 +119,7 @@ def _validate_action_config(config: ConfigType) -> tuple[str, str]:
 
     Raises:
         ValueError: If required fields are missing (logged but not raised)
+
     """
     if CONF_TYPE not in config:
         _LOGGER.error("Action config missing type field")
@@ -130,8 +134,8 @@ def _validate_action_config(config: ConfigType) -> tuple[str, str]:
 
 def _build_service_data(
     device_id: str,
-    action_type: str,
-    config: ConfigType,
+    action_type: str,  # pylint: disable=unused-argument
+    config: ConfigType,  # pylint: disable=unused-argument
 ) -> dict[str, Any]:
     """Build service data dictionary.
 
@@ -142,6 +146,7 @@ def _build_service_data(
 
     Returns:
         Service data dictionary with device_id and optional parameters
+
     """
     service_data: dict[str, Any] = {"device_id": device_id}
 
@@ -151,7 +156,7 @@ def _build_service_data(
 async def async_call_action_from_config(
     hass: HomeAssistant,
     config: ConfigType,
-    variables: TemplateVarsType,
+    variables: TemplateVarsType,  # pylint: disable=unused-argument
     context: Context | None,
 ) -> None:
     """Execute a device action.
@@ -161,6 +166,7 @@ async def async_call_action_from_config(
         config: Action configuration dictionary
         variables: Template variables (unused but required by interface)
         context: Optional context for the service call
+
     """
     _LOGGER.debug("Executing device action, config: %s", config)
 

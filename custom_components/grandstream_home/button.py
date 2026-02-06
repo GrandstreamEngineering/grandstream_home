@@ -4,9 +4,9 @@ import logging
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -44,7 +44,7 @@ async def async_setup_entry(
 class GrandstreamBaseButton(CoordinatorEntity, ButtonEntity):
     """Representation of a Grandstream button."""
 
-    def __init__(self, coordinator, device):
+    def __init__(self, coordinator, device) -> None:
         """Initialize the button."""
         super().__init__(coordinator)
         self.coordinator = coordinator
@@ -66,23 +66,38 @@ class GrandstreamBaseButton(CoordinatorEntity, ButtonEntity):
 
     def _get_device_id(self):
         """Get device ID from device registry."""
-        if self._attr_device_info and "identifiers" in self._attr_device_info:
-            for identifier in self._attr_device_info["identifiers"]:
-                if identifier[0] == DOMAIN:
-                    # Get device registry
-                    device_registry = dr.async_get(self.hass)
-                    device = device_registry.async_get_device(
-                        identifiers={(DOMAIN, identifier[1])}
-                    )
-                    if device:
-                        return device.id
+        try:
+            device_info = self._attr_device_info
+            if not device_info or not hasattr(device_info, "get"):
+                return None
+
+            identifiers = device_info.get("identifiers")
+            if not identifiers:
+                return None
+
+            for identifier in identifiers:
+                if identifier[0] != DOMAIN:
+                    continue
+
+                # Get device registry
+                device_registry = dr.async_get(self.hass)
+                device = device_registry.async_get_device(
+                    identifiers={(DOMAIN, identifier[1])}
+                )
+                if device:
+                    return device.id
+        except (AttributeError, TypeError, KeyError):
+            pass
         return None
+
+    def press(self) -> None:
+        """Press the button (base implementation)."""
 
 
 class GrandstreamRebootButton(GrandstreamBaseButton):
     """Representation of a Grandstream reboot button."""
 
-    def __init__(self, coordinator, device):
+    def __init__(self, coordinator, device) -> None:
         """Initialize the reboot button."""
         super().__init__(coordinator, device)
         self._attr_unique_id = f"{device.unique_id}_reboot"
@@ -146,9 +161,7 @@ class GrandstreamRebootButton(GrandstreamBaseButton):
 
             # Check if device is authenticated
             if hasattr(api, "is_authenticated") and not is_authenticated:
-                _LOGGER.debug(
-                    "Reboot button unavailable: GDS device not authenticated"
-                )
+                _LOGGER.debug("Reboot button unavailable: GDS device not authenticated")
                 return False
 
             return True
@@ -165,7 +178,10 @@ class GrandstreamRebootButton(GrandstreamBaseButton):
                 self.device.name,
                 getattr(api, "device_type", "unknown"),
             )
-            await self.hass.async_add_executor_job(api.reboot_device)
+            try:
+                await self.hass.async_add_executor_job(api.reboot_device)
+            except (ConnectionError, TimeoutError, ValueError, RuntimeError) as err:
+                _LOGGER.error("Failed to reboot device: %s", err)
             return
 
         # Fallback: get device_id and call service
@@ -182,7 +198,7 @@ class GrandstreamRebootButton(GrandstreamBaseButton):
 class GnsSpecializedButton(GrandstreamBaseButton):
     """Base class for GNS NAS specialized buttons."""
 
-    def __init__(self, coordinator, device, unique_id_suffix, translation_key, icon):
+    def __init__(self, coordinator, device, unique_id_suffix, translation_key, icon) -> None:
         """Initialize the GNS button."""
         super().__init__(coordinator, device)
         self._attr_unique_id = f"{device.unique_id}_{unique_id_suffix}"
@@ -191,8 +207,8 @@ class GnsSpecializedButton(GrandstreamBaseButton):
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_device_info = device.device_info
         self._attr_icon = icon
-        self._service_name = None  # To be set by subclasses
-        self._api_method_name = None  # To be set by subclasses
+        self._service_name: str | None = None  # To be set by subclasses
+        self._api_method_name: str | None = None  # To be set by subclasses
 
     @property
     def available(self) -> bool:
@@ -215,9 +231,12 @@ class GnsSpecializedButton(GrandstreamBaseButton):
         """Handle button press - directly call API."""
         api = self._get_api_instance()
         if api and self._api_method_name and hasattr(api, self._api_method_name):
-            await self.hass.async_add_executor_job(
-                getattr(api, self._api_method_name)
-            )
+            try:
+                await self.hass.async_add_executor_job(
+                    getattr(api, self._api_method_name)
+                )
+            except (ConnectionError, TimeoutError, ValueError, RuntimeError) as err:
+                _LOGGER.error("Failed to execute %s: %s", self._api_method_name, err)
             return
 
         # Fallback to service call
@@ -227,7 +246,7 @@ class GnsSpecializedButton(GrandstreamBaseButton):
 class GnsSleepButton(GnsSpecializedButton):
     """GNS NAS sleep button."""
 
-    def __init__(self, coordinator, device):
+    def __init__(self, coordinator, device) -> None:
         """Initialize the sleep button."""
         super().__init__(coordinator, device, "sleep", "sleep", "mdi:sleep")
         self._service_name = "sleep_device"
@@ -237,7 +256,7 @@ class GnsSleepButton(GnsSpecializedButton):
 class GnsWakeButton(GnsSpecializedButton):
     """GNS NAS wake button."""
 
-    def __init__(self, coordinator, device):
+    def __init__(self, coordinator, device) -> None:
         """Initialize the wake button."""
         super().__init__(coordinator, device, "wake", "wake", "mdi:eye")
         self._service_name = "wake_device"
@@ -260,7 +279,7 @@ class GnsWakeButton(GnsSpecializedButton):
 class GnsShutdownButton(GnsSpecializedButton):
     """GNS NAS shutdown button."""
 
-    def __init__(self, coordinator, device):
+    def __init__(self, coordinator, device) -> None:
         """Initialize the shutdown button."""
         super().__init__(coordinator, device, "shutdown", "shutdown", "mdi:power")
         self._service_name = "shutdown_device"

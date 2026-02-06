@@ -1,0 +1,16 @@
+{
+  "services": {
+    "reboot_device": {
+      "service": "mdi:restart"
+    },
+    "sleep_device": {
+      "service": "mdi:sleep"
+    },
+    "wake_device": {
+      "service": "mdi:eye"
+    },
+    "shutdown_device": {
+      "service": "mdi:power"
+    }
+  }
+}
